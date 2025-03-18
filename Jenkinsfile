@@ -25,7 +25,7 @@ pipeline {
             steps {
 
                 withSonarQubeEnv('sonar-server') {
-                    sh 'mvn clean package org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                    sh 'mvn package org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
                             -Dsonar.projectKey=labmaven01 \
                             -Dsonar.projectName=labmaven01 \
                             -Dsonar.sources=src/main \
