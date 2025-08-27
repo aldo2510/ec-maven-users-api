@@ -5,7 +5,7 @@ pipeline {
     NEXUS_URL   = 'http://34.16.235.26:8081'
     NEXUS_REPO  = 'raw-releases'
     APP_NAME    = 'mi-aplicacion-java'
-    CURL_IMAGE  = 'curlimages/curl:8.7.1'
+    CURL_IMAGE  = 'alpine/curl'
     NEXUS_CREDS = credentials('nexus_creds')
   }
 
