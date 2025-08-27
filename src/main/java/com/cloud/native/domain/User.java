@@ -1,4 +1,4 @@
-package com.entrenamiento.certero.domain;
+package com.cloud.native.domain;
 
 public class User {
 

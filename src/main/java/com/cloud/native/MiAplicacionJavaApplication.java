@@ -1,4 +1,4 @@
-package com.entrenamiento.certero;
+package com.cloud.native;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

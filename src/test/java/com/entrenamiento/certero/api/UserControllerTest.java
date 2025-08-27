@@ -1,7 +1,7 @@
-package com.entrenamiento.certero.api;
+package com.cloud.native.api;
 
-import com.entrenamiento.certero.service.UserService;
-import com.entrenamiento.certero.domain.User;
+import com.cloud.native.service.UserService;
+import com.cloud.native.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
