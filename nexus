@@ -21,19 +21,20 @@ pipeline {
     }
 
     stage('Publicar en Nexus (RAW)') {
-      agent { docker { image "${env.CURL_IMAGE}" } }
+      agent { docker { image 'alpine/curl:latest' } }
       steps {
         unstash 'jar'
         sh '''
           set -e
-
-          [ -e target/*.jar ] || { echo "No se encontró JAR en target/"; exit 1; }
-
-          SRC=target/*.jar
-          DEST="${NEXUS_URL}/repository/${NEXUS_REPO}/${APP_NAME}/${BUILD_NUMBER}/app.jar"
-
-          echo "Subiendo $SRC -> $DEST"
-          curl --fail -u "${NEXUS_CREDS_USR}:${NEXUS_CREDS_PSW}" -T "$SRC" "$DEST"
+          # Resuelve el único JAR generado
+          JAR=$(ls -1 target/*.jar 2>/dev/null | head -n 1)
+          [ -n "$JAR" ] || { echo "No se encontró JAR en target/"; exit 1; }
+    
+          # Usa el nombre real (sin comodín) para el destino
+          DEST="${NEXUS_URL}/repository/${NEXUS_REPO}/${APP_NAME}/${BUILD_NUMBER}/$(basename "$JAR")"
+          echo "Subiendo $JAR -> $DEST"
+    
+          curl --fail -u "${NEXUS_CREDS_USR}:${NEXUS_CREDS_PSW}" -T "$JAR" "$DEST"
           echo "✅ Upload OK"
         '''
       }
