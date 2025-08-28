@@ -2,10 +2,9 @@ pipeline {
   agent none
 
   environment {
-    NEXUS_URL   = 'http://34.16.235.26:8081'
+    NEXUS_URL   = 'http://34.16.235.26:8081' //cambiar url
     NEXUS_REPO  = 'raw-releases'
     APP_NAME    = 'mi-aplicacion-java'
-    CURL_IMAGE  = 'alpine/curl'
     NEXUS_CREDS = credentials('nexus_creds')
   }
 
@@ -15,7 +14,6 @@ pipeline {
       steps {
         sh 'mvn -B -DskipTests clean package'
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
-
         stash name: 'jar', includes: 'target/*.jar', allowEmpty: false
       }
     }
