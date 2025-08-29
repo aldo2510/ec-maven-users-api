@@ -8,7 +8,7 @@ pipeline {
     REPO         = 'cna-github'
     REGISTRY     = "${REGION}-docker.pkg.dev"
 
-    // Debe ser credencial tipo Secret file (ruta al JSON)
+    // Credencial tipo Secret file (ruta al JSON)
     GCLOUD_CREDS = credentials('gcloud-creds')
 
     IMAGE_NAME   = "${REGISTRY}/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
@@ -22,8 +22,8 @@ pipeline {
           set -eux
           mvn -v
           mvn clean package -DskipTests
-          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
         '''
+        archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
       }
     }
 
@@ -41,24 +41,28 @@ pipeline {
     }
 
     stage('Docker Build & Push (main)') {
-      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       when {
         expression {
           def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
+      agent {
+        docker {
+          image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+          // ¡Necesario para docker build/push!
+          args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+      }
       steps {
-        copyArtifacts filter: 'target/*.jar',
-                    fingerprintArtifacts: true,
-                    projectName: '${JOB_NAME}',
-                    flatten: true,
-                    selector: specific('${BUILD_NUMBER}'),
-                    target: 'target';
-
-
         sh '''
           set -eux
+          # Asegurar docker CLI (cloud-sdk:slim puede no traerlo)
+          if ! command -v docker >/dev/null 2>&1; then
+            apt-get update -qq
+            apt-get install -y docker.io
+          fi
+
           gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
           gcloud config set project "${PROJECT_ID}"
           gcloud auth configure-docker "${REGISTRY}" --quiet
@@ -71,16 +75,19 @@ pipeline {
     }
 
     stage('Deploy a Cloud Run (main)') {
-      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       when {
         expression {
           def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
+      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       steps {
         sh '''
           set -eux
+          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
+          gcloud config set project "${PROJECT_ID}"
+
           gcloud run deploy "${APP_NAME}" \
             --image "${IMAGE_NAME}" \
             --region "${REGION}" \
