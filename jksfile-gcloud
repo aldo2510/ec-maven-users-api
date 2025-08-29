@@ -47,7 +47,7 @@ pipeline {
     }
 
     stage('Deploy a Cloud Run (main)') {
-      when { branch 'main' }
+      // when { branch 'main' }
       agent {
         docker {
           image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
