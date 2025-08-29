@@ -22,11 +22,13 @@ pipeline {
           set -eux
           mvn -v
           mvn clean package -DskipTests
+          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
         '''
       }
     }
 
     stage('Auth GCloud') {
+      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       steps {
         sh '''
           set -eux
@@ -39,6 +41,7 @@ pipeline {
     }
 
     stage('Docker Build & Push (main)') {
+      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       when {
         expression {
           def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
@@ -46,8 +49,20 @@ pipeline {
         }
       }
       steps {
+        copyArtifacts filter: 'target/*.jar',
+                    fingerprintArtifacts: true,
+                    projectName: '${JOB_NAME}',
+                    flatten: true,
+                    selector: specific('${BUILD_NUMBER}'),
+                    target: 'target';
+
+
         sh '''
           set -eux
+          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
+          gcloud config set project "${PROJECT_ID}"
+          gcloud auth configure-docker "${REGISTRY}" --quiet
+
           echo "Building ${IMAGE_NAME}"
           docker build -t "${IMAGE_NAME}" .
           docker push "${IMAGE_NAME}"
@@ -56,6 +71,7 @@ pipeline {
     }
 
     stage('Deploy a Cloud Run (main)') {
+      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       when {
         expression {
           def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
