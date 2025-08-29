@@ -7,9 +7,11 @@ pipeline {
     REGION       = 'us-central1'
     REPO         = 'cna-github'
     REGISTRY     = "${REGION}-docker.pkg.dev"
-    GCLOUD_CREDS = credentials('gcloud-creds') // Secret file (PATH al JSON)
+    GCLOUD_CREDS = credentials('gcloud-creds') // Secret file (ruta al JSON)
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
+
+  options { ansiColor('xterm') }
 
   stages {
     stage('Build con Maven') {
@@ -20,8 +22,9 @@ pipeline {
           mvn -v
           mvn clean package -DskipTests
         '''
-        // Archiva el jar para poder copiarlo en otro stage
+        // Publica el jar y también lo deja listo como stash (fallback)
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
+        stash name: 'app-jar', includes: 'target/*.jar'
       }
     }
 
@@ -35,25 +38,34 @@ pipeline {
       agent {
         docker {
           image 'docker:24-cli'
-          // Acceso al daemon del host + root para evitar permisos
+          // acceso al daemon del host; root dentro del contenedor para evitar permisos
           args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
         }
       }
       steps {
-        // Copia el jar archivado de ESTE MISMO build al workspace del stage
-        copyArtifacts(
-          projectName: env.JOB_NAME,
-          selector: specific(env.BUILD_NUMBER),
-          filter: 'target/*.jar',
-          fingerprintArtifacts: true,
-          flatten: true,
-          target: 'target'
-        )
+        // 1) Intenta copiar el artefacto publicado por ESTE MISMO build
+        script {
+          try {
+            copyArtifacts(
+              projectName: env.JOB_NAME,
+              selector: [$class: 'SpecificBuildSelector', buildNumber: "${env.BUILD_NUMBER}"],
+              filter: 'target/*.jar',
+              fingerprintArtifacts: true,
+              flatten: true,
+              target: 'target'
+            )
+            echo 'copyArtifacts OK'
+          } catch (err) {
+            echo "copyArtifacts no disponible (${err}); usando fallback unstash"
+            dir('target') { /* asegura la carpeta destino */ }
+            unstash 'app-jar'
+          }
+        }
 
+        // 2) Build & push con Docker CLI (login a Artifact Registry con JSON de SA)
         sh '''
           set -eux
           docker --version
-          # Login directo a Artifact Registry con la service account (JSON)
           docker login -u _json_key --password-stdin "https://${REGISTRY}" < "${GCLOUD_CREDS}"
 
           echo "Building ${IMAGE_NAME}"
