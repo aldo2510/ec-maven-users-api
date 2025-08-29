@@ -1,0 +1,71 @@
+pipeline {
+  agent any
+
+  environment {
+    APP_NAME     = 'mi-application'
+    PROJECT_ID   = 'hypnotic-epoch-411523'
+    REGION       = 'us-central1'
+    REPO         = 'cna-github'
+    REGISTRY     = "${REGION}-docker.pkg.dev"
+
+    GCLOUD_CREDS = credentials('gcloud-creds')
+  }
+
+  options {
+    ansiColor('xterm')
+  }
+
+  stages {
+    stage('Build con Maven') {
+      agent {
+        docker {
+          image 'maven:3.9.6-eclipse-temurin-17'
+        }
+      }
+      steps {
+        sh '''
+          mvn -v
+          mvn clean package -DskipTests
+        '''
+      }
+    }
+
+    stage('Auth GCloud') {
+      steps {
+        sh 'gcloud config set project hypnotic-epoch-411523'
+        sh 'gcloud auth activate-service-account --key-file="$GCLOUD_CREDS"'
+        sh 'gcloud auth configure-docker ${REGISTRY} --quiet'
+      }
+    }
+
+    stage('Docker Build & Push (main)') {
+      when { branch 'main' }
+      steps {
+        sh '''
+          docker build -t "${IMAGE_NAME}" .
+          docker push "${IMAGE_NAME}"
+          echo "IMAGE_NAME=${IMAGE_NAME}" > image.env
+        '''
+      }
+    }
+
+    stage('Deploy a Cloud Run (main)') {
+      when { branch 'main' }
+      agent {
+        docker {
+          image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+        }
+      }
+      steps {
+        sh '''
+          source image.env
+          gcloud run deploy "${APP_NAME}" \
+            --image "${IMAGE_NAME}" \
+            --region "${REGION}" \
+            --platform managed \
+            --allow-unauthenticated
+        '''
+      }
+    }
+  }
+}
