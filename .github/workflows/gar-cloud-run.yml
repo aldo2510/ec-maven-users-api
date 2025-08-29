@@ -35,8 +35,7 @@ jobs:
 
     - name: Set imagen name
       id: vars
-      run: echo "IMAGE_NAME=us-central1-docker.pkg.dev/hypnotic-epoch-411523/e-certero-trucios/$(basename ${{ github.repository }})" > "$GITHUB_ENV"
-
+      run: echo "IMAGE_NAME=us-central1-docker.pkg.dev/hypnotic-epoch-411523/cna-github/$(basename ${{ github.repository }})" > "$GITHUB_ENV"
     - name: Build the Docker image
       run: docker build -t $IMAGE_NAME:latest .
 
