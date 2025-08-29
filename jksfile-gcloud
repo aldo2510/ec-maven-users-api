@@ -36,12 +36,10 @@ pipeline {
       agent {
         docker {
           image 'docker:24-cli'
-          // acceso al daemon del host; root dentro del contenedor para evitar permisos
           args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
         }
       }
       steps {
-        // 1) Intenta copiar el artefacto publicado por ESTE MISMO build
         script {
           try {
             copyArtifacts(
@@ -60,7 +58,6 @@ pipeline {
           }
         }
 
-        // 2) Build & push con Docker CLI (login a Artifact Registry con JSON de SA)
         sh '''
           set -eux
           docker --version
