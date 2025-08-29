@@ -33,6 +33,9 @@ pipeline {
           gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
           gcloud config set project "${PROJECT_ID}"
           gcloud auth configure-docker "${REGISTRY}" --quiet
+          echo "Building ${IMAGE_NAME}"
+          docker build -t "${IMAGE_NAME}" .
+          docker push "${IMAGE_NAME}"
         '''
       }
     }
@@ -49,6 +52,12 @@ pipeline {
         sh '''
           set -eux
           docker --version
+          copyArtifacts filter: 'target/*.jar',
+                      fingerprintArtifacts: true,
+                      projectName: '${JOB_NAME}',
+                      flatten: true,
+                      selector: specific('${BUILD_NUMBER}'),
+                      target: 'target';
           # Login directo a Artifact Registry con la SA (GCLOUD_CREDS es ruta a archivo)
           gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
           gcloud config set project "${PROJECT_ID}"
