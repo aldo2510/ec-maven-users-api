@@ -25,7 +25,6 @@ pipeline {
     }
 
     stage('Auth GCloud (opcional)') {
-      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       steps {
         sh '''
           set -eux
