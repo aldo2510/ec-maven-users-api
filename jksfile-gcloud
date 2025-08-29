@@ -7,9 +7,11 @@ pipeline {
     REGION       = 'us-central1'
     REPO         = 'cna-github'
     REGISTRY     = "${REGION}-docker.pkg.dev"
-    GCLOUD_CREDS = credentials('gcloud-creds') // Secret file (ruta al JSON)
+    GCLOUD_CREDS = credentials('gcloud-creds') // Secret file (PATH al JSON)
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
+
+  options { ansiColor('xterm') }
 
   stages {
     stage('Build con Maven') {
@@ -20,22 +22,8 @@ pipeline {
           mvn -v
           mvn clean package -DskipTests
         '''
+        // Archiva el jar para poder copiarlo en otro stage
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
-      }
-    }
-
-    stage('Auth GCloud (opcional)') {
-      steps {
-        sh '''
-          set -eux
-          gcloud --version
-          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
-          gcloud config set project "${PROJECT_ID}"
-          gcloud auth configure-docker "${REGISTRY}" --quiet
-          echo "Building ${IMAGE_NAME}"
-          docker build -t "${IMAGE_NAME}" .
-          docker push "${IMAGE_NAME}"
-        '''
       }
     }
 
@@ -46,20 +34,30 @@ pipeline {
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
-
+      agent {
+        docker {
+          image 'docker:24-cli'
+          // Acceso al daemon del host + root para evitar permisos
+          args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
+        }
+      }
       steps {
+        // Copia el jar archivado de ESTE MISMO build al workspace del stage
+        copyArtifacts(
+          projectName: env.JOB_NAME,
+          selector: specific(env.BUILD_NUMBER),
+          filter: 'target/*.jar',
+          fingerprintArtifacts: true,
+          flatten: true,
+          target: 'target'
+        )
+
         sh '''
           set -eux
           docker --version
-          copyArtifacts filter: 'target/*.jar',
-                      fingerprintArtifacts: true,
-                      projectName: '${JOB_NAME}',
-                      flatten: true,
-                      selector: specific('${BUILD_NUMBER}'),
-                      target: 'target';
-          # Login directo a Artifact Registry con la SA (GCLOUD_CREDS es ruta a archivo)
-          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
-          gcloud config set project "${PROJECT_ID}"
+          # Login directo a Artifact Registry con la service account (JSON)
+          docker login -u _json_key --password-stdin "https://${REGISTRY}" < "${GCLOUD_CREDS}"
+
           echo "Building ${IMAGE_NAME}"
           docker build -t "${IMAGE_NAME}" .
           docker push "${IMAGE_NAME}"
