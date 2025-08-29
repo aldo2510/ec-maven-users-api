@@ -8,18 +8,20 @@ pipeline {
     REPO         = 'cna-github'
     REGISTRY     = "${REGION}-docker.pkg.dev"
 
+    // Debe ser credencial tipo Secret file (ruta al JSON)
     GCLOUD_CREDS = credentials('gcloud-creds')
+
+    IMAGE_NAME   = "${REGISTRY}/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
+
+  options { ansiColor('xterm') }
 
   stages {
     stage('Build con Maven') {
-      agent {
-        docker {
-          image 'maven:3.9.6-eclipse-temurin-17'
-        }
-      }
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
       steps {
         sh '''
+          set -eux
           mvn -v
           mvn clean package -DskipTests
         '''
@@ -27,35 +29,44 @@ pipeline {
     }
 
     stage('Auth GCloud') {
-      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       steps {
-        sh 'gcloud config set project hypnotic-epoch-411523'
-        sh 'gcloud auth activate-service-account --key-file="$GCLOUD_CREDS"'
-        sh 'gcloud auth configure-docker ${REGISTRY} --quiet'
+        sh '''
+          set -eux
+          gcloud --version
+          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
+          gcloud config set project "${PROJECT_ID}"
+          gcloud auth configure-docker "${REGISTRY}" --quiet
+        '''
       }
     }
 
     stage('Docker Build & Push (main)') {
-      when { branch 'main' }
+      when {
+        expression {
+          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
+          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+        }
+      }
       steps {
         sh '''
+          set -eux
+          echo "Building ${IMAGE_NAME}"
           docker build -t "${IMAGE_NAME}" .
           docker push "${IMAGE_NAME}"
-          echo "IMAGE_NAME=${IMAGE_NAME}" > image.env
         '''
       }
     }
 
     stage('Deploy a Cloud Run (main)') {
-      // when { branch 'main' }
-      agent {
-        docker {
-          image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+      when {
+        expression {
+          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
+          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
       steps {
         sh '''
-          source image.env
+          set -eux
           gcloud run deploy "${APP_NAME}" \
             --image "${IMAGE_NAME}" \
             --region "${REGION}" \
