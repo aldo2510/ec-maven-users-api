@@ -27,6 +27,7 @@ pipeline {
     }
 
     stage('Auth GCloud') {
+      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       steps {
         sh 'gcloud config set project hypnotic-epoch-411523'
         sh 'gcloud auth activate-service-account --key-file="$GCLOUD_CREDS"'
