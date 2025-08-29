@@ -11,8 +11,6 @@ pipeline {
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
 
-  options { ansiColor('xterm') }
-
   stages {
     stage('Build con Maven') {
       agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
