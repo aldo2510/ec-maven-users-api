@@ -11,10 +11,6 @@ pipeline {
     GCLOUD_CREDS = credentials('gcloud-creds')
   }
 
-  options {
-    ansiColor('xterm')
-  }
-
   stages {
     stage('Build con Maven') {
       agent {
