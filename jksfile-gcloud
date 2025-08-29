@@ -5,7 +5,7 @@ pipeline {
     APP_NAME     = 'mi-application'
     PROJECT_ID   = 'hypnotic-epoch-411523'
     REGION       = 'us-central1'
-    REPO         = 'cna-github'
+    REPO         = 'cna-artifact'
     REGISTRY     = "${REGION}-docker.pkg.dev"
     GCLOUD_CREDS = credentials('gcloud-creds') // Secret file (ruta al JSON)
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
