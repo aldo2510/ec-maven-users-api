@@ -1,5 +1,5 @@
 pipeline {
-  agent any
+  agent { label 'controller' }
 
   environment {
     APP_NAME     = 'mi-application'
@@ -7,10 +7,7 @@ pipeline {
     REGION       = 'us-central1'
     REPO         = 'cna-github'
     REGISTRY     = "${REGION}-docker.pkg.dev"
-
-    // Credencial tipo Secret file (ruta al JSON en el FS)
-    GCLOUD_CREDS = credentials('gcloud-creds')
-
+    GCLOUD_CREDS = credentials('gcloud-creds') // Secret file (ruta al JSON)
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
 
@@ -23,12 +20,10 @@ pipeline {
           mvn -v
           mvn clean package -DskipTests
         '''
-        // step de Jenkins, fuera del sh
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
       }
     }
 
-    // (Opcional) Autenticación previa con gcloud para probar credenciales
     stage('Auth GCloud (opcional)') {
       agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
       steps {
@@ -37,8 +32,6 @@ pipeline {
           gcloud --version
           gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
           gcloud config set project "${PROJECT_ID}"
-          # No es necesario para el push si usamos docker login,
-          # pero no molesta dejarlo:
           gcloud auth configure-docker "${REGISTRY}" --quiet
         '''
       }
@@ -51,22 +44,14 @@ pipeline {
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
-      agent {
-        // Imagen que ya trae el Docker CLI
-        docker {
-          image 'docker:24-cli'
-          // Montamos el socket para hablar con el daemon del host
-          args '-v /var/run/docker.sock:/var/run/docker.sock'
-        }
-      }
+
       steps {
         sh '''
           set -eux
-          # Login a Artifact Registry con la key JSON
-          # (GCLOUD_CREDS es una RUTA a archivo por ser Secret file)
           docker --version
-          docker login -u _json_key --password-stdin "https://${REGISTRY}" < "${GCLOUD_CREDS}"
-
+          # Login directo a Artifact Registry con la SA (GCLOUD_CREDS es ruta a archivo)
+          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
+          gcloud config set project "${PROJECT_ID}"
           echo "Building ${IMAGE_NAME}"
           docker build -t "${IMAGE_NAME}" .
           docker push "${IMAGE_NAME}"
