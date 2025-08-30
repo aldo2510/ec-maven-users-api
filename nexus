@@ -2,7 +2,7 @@ pipeline {
   agent none
 
   environment {
-    NEXUS_URL   = 'http://34.16.235.26:8081' //cambiar url
+    NEXUS_URL   = 'http://34.125.81.169:8081' //cambiar url
     NEXUS_REPO  = 'raw-releases-v2'
     APP_NAME    = 'mi-aplicacion-java'
     NEXUS_CREDS = credentials('nexus_creds')
