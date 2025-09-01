@@ -2,7 +2,7 @@ pipeline {
   agent none
 
   environment {
-    SNYK_ORG = 'josealdotrucios'
+    SNYK_ORG = 'josealdotrucios' // tu org/slug en Snyk
   }
 
   stages {
@@ -18,8 +18,9 @@ pipeline {
       }
     }
 
+    // ======== SAST con CLI (opcional) ========
     stage('Snyk Code (CLI) – HTML + SARIF + break build') {
-      agent { docker { image 'node:22-alpine' } } // trae npm para instalar utilidades
+      agent { docker { image 'node:20-alpine' } } // ya trae npm/npx
       environment {
         SNYK_DISABLE_ANALYTICS = '1'
         SNYK_INTEGRATION_NAME  = 'jenkins-cli'
@@ -28,32 +29,33 @@ pipeline {
         withCredentials([string(credentialsId: 'organisation-snyk-api-token-secret', variable: 'SNYK_TOKEN')]) {
           sh '''
             set +e
-            npm -g i snyk@latest snyk-to-html@latest
 
-            snyk auth "$SNYK_TOKEN"
+            # Autenticación y versión (sin instalaciones globales)
+            npx -y snyk@latest --version
+            npx -y snyk@latest auth "$SNYK_TOKEN"
 
-            # Ejecuta el análisis y GUARDA el exit code para romper el build si encuentra HIGH+
-            snyk code test \
+            # Análisis SAST con umbral de severidad; CAPTURAMOS el exit code para romper el build
+            npx -y snyk@latest code test \
               --org="${SNYK_ORG}" \
               --severity-threshold=high \
               --json-file-output=snyk-code.json
             EXIT_CODE=$?
 
-            # Genera SARIF (para Static Analysis en Jenkins/GitHub) y HTML (para ver en Jenkins)
-            snyk code test \
+            # Artefactos extra (no afectan el estado del build)
+            npx -y snyk@latest code test \
               --org="${SNYK_ORG}" \
               --severity-threshold=high \
               --sarif > snyk-code.sarif || true
 
-            snyk-to-html -i snyk-code.json -o snyk-code.html || true
+            npx -y snyk-to-html@latest -i snyk-code.json -o snyk-code.html || true
 
-            # Snapshot a Snyk (no afecta el estado del build)
-            snyk monitor \
+            # Snapshot a Snyk (monitor)
+            npx -y snyk@latest monitor \
               --org="${SNYK_ORG}" \
               --project-name="${JOB_NAME}-code" \
               --source=cli-code || true
 
-            # Publicamos reportes y luego devolvemos el exit code real del test
+            # Devolver el exit code real del test para romper el build si hubo HIGH/CRITICAL
             exit $EXIT_CODE
           '''
         }
@@ -62,7 +64,7 @@ pipeline {
         always {
           archiveArtifacts artifacts: 'snyk-code.*', allowEmptyArchive: true
 
-          // Necesita el plugin HTML Publisher
+          // HTML Publisher: ver reporte navegable en la página del job
           publishHTML(target: [
             reportName: 'Snyk Code',
             reportDir: '.',
@@ -72,12 +74,13 @@ pipeline {
             allowMissing: true
           ])
 
-          // Necesita el plugin Warnings Next Generation (muestra el SARIF en "Static Analysis")
+          // Warnings NG: muestra SARIF en "Static Analysis"
           recordIssues enabledForFailure: true,
-                       tools: [sarif(pattern: 'snyk-code.sarif')],
-                       qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]]
+                      tools: [sarif(pattern: 'snyk-code.sarif')],
+                      qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]]
         }
       }
     }
+
   }
 }
