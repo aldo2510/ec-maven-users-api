@@ -20,21 +20,21 @@ pipeline {
 
     // ======== SCA con el PLUGIN (snykSecurity) ========
     stage('Snyk Open Source (Plugin) - Report only') {
-      agent any
-      steps {
-        script {
-          snykSecurity(
-            organisation: "${SNYK_ORG}",
-            projectName: "${JOB_NAME}",
-            severity: 'high',                 // umbral de severidad mostrado
-            monitorProjectOnBuild: true,      // hace 'snyk monitor' automáticamente
-            failOnIssues: false,              // NO romper el build por hallazgos
-            failOnError: true,                // sí fallar si hay errores de ejecución
-            snykInstallation: 'snyk@latest',  // nombre en Manage Jenkins > Tools
-            snykTokenId: 'organisation-snyk-api-token', // credencial tipo "Snyk API Token"
-            targetFile: 'pom.xml'            // o déjalo vacío para autodetección
-          )
-        }
+        agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }      
+        steps {
+            script {
+                snykSecurity(
+                    organisation: "${SNYK_ORG}",
+                    projectName: "${JOB_NAME}",
+                    severity: 'high',                 // umbral de severidad mostrado
+                    monitorProjectOnBuild: true,      // hace 'snyk monitor' automáticamente
+                    failOnIssues: false,              // NO romper el build por hallazgos
+                    failOnError: true,                // sí fallar si hay errores de ejecución
+                    snykInstallation: 'snyk@latest',  // nombre en Manage Jenkins > Tools
+                    snykTokenId: 'organisation-snyk-api-token', // credencial tipo "Snyk API Token"
+                    targetFile: 'pom.xml'            // o déjalo vacío para autodetección
+                )
+            }
       }
     }
   }
