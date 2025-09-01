@@ -1,84 +1,39 @@
-pipeline {
-  agent any
+stage('Preparation') {
+  steps {
+    cleanWs()
+    checkout scm
+    sh '''#!/bin/bash
+      set -e
+      echo "Install Snyk"
+      curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux
+      curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux.sha256
+      sha256sum -c snyk-linux.sha256
+      chmod +x snyk-linux && mv snyk-linux ./snyk
 
-  environment {
-    // Si usas organización/slug de Snyk, puedes pasarlo como variable
-    SNYK_ORG = 'josealdotrucios'
-    // Esto hace que ./snyk esté en PATH para los steps siguientes
-    PATH = "${env.WORKSPACE}:${env.PATH}"
-  }
-
-  stages {
-    stage('Preparation') {
-      steps {
-        cleanWs()
-        checkout scm
-
-        sh '''
-          set -euo pipefail
-          echo "==> Install Snyk CLI (linux)"
-          curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux
-          curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux.sha256
-
-          # Verificación de integridad (usa sha256sum si shasum no existe)
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum -c snyk-linux.sha256
-          else
-            shasum -a 256 -c snyk-linux.sha256
-          fi
-
-          chmod +x snyk-linux
-          mv snyk-linux snyk
-          ./snyk --version
-        '''
-
-        echo '==> Snyk Login'
-        withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN')]) {
-          // El shell expande ${SNYK_TOKEN}; withCredentials lo inyecta en el entorno
-          sh './snyk auth ${SNYK_TOKEN}'
-        }
-      }
+      echo "Snyk Login"
+      '''
+          withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN')]) {
+            sh '''#!/bin/bash
+      set -e
+      ./snyk auth ${SNYK_TOKEN}
+      '''
     }
+  }
+}
 
-    stage('Snyk Code (SARIF)') {
-      tools { maven '3.9.11' }
-      steps {
-        // Marca el stage como FAILURE si hay hallazgos que elevan el exit code,
-        // pero mantiene el build en SUCCESS (útil si quieres ver reportes).
-        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-          sh '''
-            set -euo pipefail
-            ./snyk code test \
-              --sarif-file-output=results-code.sarif \
-              --severity-threshold=high \
-              ${SNYK_ORG:+--org="${SNYK_ORG}"}
-
-            # (Opcional) sube snapshot a Snyk UI para historial allí también
-            ./snyk monitor \
-              ${SNYK_ORG:+--org="${SNYK_ORG}"} \
-              --project-name="${JOB_NAME}-code" \
-              --source=cli-code || true
-          '''
-        }
-      }
-      post {
-        always {
-          // Vista “Static Analysis” con nombre/ID claro y tendencias separadas
-          recordIssues(
-            enabledForFailure: true,
-            // Evita conteo por autor (más rápido y limpio visualmente)
-            skipBlames: true,
-            // Mapea y muestra el SARIF con identidad propia
-            tools: [sarif(name: 'Snyk Code', id: 'snyk-code', pattern: 'results-code.sarif')],
-            // Gate visual: puedes cambiar a DELTA para “nuevos” issues
-            qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]]
-          )
-
-          // (Opcional, recomendado para PRs) Publica un “check” bonito en GitHub/GitLab
-          // Requiere el plugin de Checks y la integración VCS de tu Jenkins.
-          // publishIssues issues: [scanForIssues()], analyzeId: 'static-analysis'
-        }
-      }
+stage('Snyk Code') {
+  tools { maven '3.8.7' }
+  steps {
+    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+      sh '''#!/bin/bash
+        set -e
+        ./snyk code test --sarif-file-output=results-code.sarif
+        '''
+    }
+  }
+  post {
+    always {
+      recordIssues tool: sarif(name: 'Snyk Code', id: 'snyk-code', pattern: 'results-code.sarif')
     }
   }
 }
