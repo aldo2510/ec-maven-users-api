@@ -1,39 +1,40 @@
-stage('Preparation') {
-  steps {
-    cleanWs()
-    checkout scm
-    sh '''#!/bin/bash
-      set -e
-      echo "Install Snyk"
-      curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux
-      curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux.sha256
-      sha256sum -c snyk-linux.sha256
-      chmod +x snyk-linux && mv snyk-linux ./snyk
-
-      echo "Snyk Login"
-      '''
-          withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN')]) {
-            sh '''#!/bin/bash
-      set -e
-      ./snyk auth ${SNYK_TOKEN}
-      '''
-    }
-  }
-}
-
-stage('Snyk Code') {
-  tools { maven '3.8.7' }
-  steps {
-    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-      sh '''#!/bin/bash
+pipeline {
+  agent any
+  stages {
+    stage('Preparation') {
+      steps {
+        cleanWs()
+        checkout scm
+        sh '''#!/bin/bash
         set -e
-        ./snyk code test --sarif-file-output=results-code.sarif
+        echo "Install Snyk"
+        curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux
+        curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux.sha256
+        sha256sum -c snyk-linux.sha256
+        chmod +x snyk-linux && mv snyk-linux ./snyk
+        ./snyk --version
         '''
+        withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN')]) {
+          sh '''#!/bin/bash
+          ./snyk auth ${SNYK_TOKEN}
+          '''
+        }
+      }
     }
-  }
-  post {
-    always {
-      recordIssues tool: sarif(name: 'Snyk Code', id: 'snyk-code', pattern: 'results-code.sarif')
+    stage('Snyk Code') {
+      tools { maven '3.8.7' }
+      steps {
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+          sh '''#!/bin/bash
+          ./snyk code test --sarif-file-output=results-code.sarif
+          '''
+        }
+      }
+      post {
+        always {
+          recordIssues tool: sarif(name: 'Snyk Code', id: 'snyk-code', pattern: 'results-code.sarif')
+        }
+      }
     }
   }
 }
