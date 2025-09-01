@@ -23,7 +23,7 @@ pipeline {
       // Borra esta etapa si quieres exclusivamente plugin
       agent { docker { image 'snyk/snyk:linux' } }
       steps {
-        withCredentials([string(credentialsId: 'organisation-snyk-api-token', variable: 'SNYK_TOKEN')]) {
+        withCredentials([string(credentialsId: 'organisation-snyk-api-token-secret', variable: 'SNYK_TOKEN')]) {
           sh '''
             set +e
             snyk auth "$SNYK_TOKEN"
