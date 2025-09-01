@@ -1,182 +1,84 @@
 pipeline {
-  agent none
+  agent any
 
   environment {
-    SNYK_ORG = 'josealdotrucios' // tu org/slug en Snyk
+    // Si usas organización/slug de Snyk, puedes pasarlo como variable
+    SNYK_ORG = 'josealdotrucios'
+    // Esto hace que ./snyk esté en PATH para los steps siguientes
+    PATH = "${env.WORKSPACE}:${env.PATH}"
   }
 
   stages {
-    stage('Build') {
-      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+    stage('Preparation') {
       steps {
-        sh 'mvn -B -DskipTests verify'
-      }
-      post {
-        success {
-          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
+        cleanWs()
+        checkout scm
+
+        sh '''
+          set -euo pipefail
+          echo "==> Install Snyk CLI (linux)"
+          curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux
+          curl -sSL -O https://static.snyk.io/cli/latest/snyk-linux.sha256
+
+          # Verificación de integridad (usa sha256sum si shasum no existe)
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c snyk-linux.sha256
+          else
+            shasum -a 256 -c snyk-linux.sha256
+          fi
+
+          chmod +x snyk-linux
+          mv snyk-linux snyk
+          ./snyk --version
+        '''
+
+        echo '==> Snyk Login'
+        withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN')]) {
+          // El shell expande ${SNYK_TOKEN}; withCredentials lo inyecta en el entorno
+          sh './snyk auth ${SNYK_TOKEN}'
         }
       }
     }
 
-    // ======== SAST con CLI (opcional) ========
-    stage('Snyk Code (CLI) – HTML + SARIF + break build') {
-      agent { docker { image 'node:20-alpine' } }
-      environment {
-        SNYK_DISABLE_ANALYTICS = '1'
-        SNYK_INTEGRATION_NAME  = 'jenkins-cli'
-      }
+    stage('Snyk Code (SARIF)') {
+      tools { maven '3.8.7' }
       steps {
-        withCredentials([string(credentialsId: 'organisation-snyk-api-token-secret', variable: 'SNYK_TOKEN')]) {
+        // Marca el stage como FAILURE si hay hallazgos que elevan el exit code,
+        // pero mantiene el build en SUCCESS (útil si quieres ver reportes).
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
           sh '''
-            set +e
-            npx -y snyk@latest auth "$SNYK_TOKEN"
-
-            # Análisis principal (JSON para KPIs + break build si HIGH/CRITICAL)
-            npx -y snyk@latest code test \
-              --org="${SNYK_ORG}" \
+            set -euo pipefail
+            ./snyk code test \
+              --sarif-file-output=results-code.sarif \
               --severity-threshold=high \
-              --json-file-output=snyk-code.json
-            EXIT_CODE=$?
+              ${SNYK_ORG:+--org="${SNYK_ORG}"}
 
-            # Artefactos adicionales
-            npx -y snyk@latest code test \
-              --org="${SNYK_ORG}" \
-              --severity-threshold=high \
-              --sarif > snyk-code.sarif || true
-            npx -y snyk-to-html@latest -i snyk-code.json -o snyk-code.html || true
-
-            # --- Dashboard bonito (HTML liviano) ---
-            node - <<'EOF'
-            const fs = require('fs');
-
-            // Cargamos el JSON (si no existe, mostramos placeholder)
-            let data = {};
-            try { data = JSON.parse(fs.readFileSync('snyk-code.json','utf8')); } catch(e) {}
-
-            // Normalizamos: Snyk Code devuelve issues bajo .vulnerabilities o .issues según versión
-            const issues = (data.vulnerabilities || data.issues || []).map(x => ({
-              id: x.id || x.ruleId || '',
-              title: x.title || x.message || x.rule || 'Issue',
-              sev: (x.severity || x.level || 'medium').toLowerCase(),
-              path: (x.from && x.from.join(' > ')) || x.file || (x.locations?.[0]?.physicalLocation?.artifactLocation?.uri) || '',
-              line: x.lineNumber || x.line || (x.locations?.[0]?.physicalLocation?.region?.startLine) || '',
-              cwe: (Array.isArray(x.identifiers?.CWE) ? x.identifiers.CWE.join(', ') : (x.cwe || '')),
-              url: x.url || x.issueUrl || ''
-            }));
-
-            const sevCount = {critical:0,high:0,medium:0,low:0};
-            for (const it of issues) {
-              if (sevCount[it.sev] != null) sevCount[it.sev]++; else sevCount.low++;
-            }
-            const total = issues.length;
-
-            // Top 20 por severidad/“ruido mínimo”
-            const order = {critical:0, high:1, medium:2, low:3};
-            const top = issues.sort((a,b)=> (order[a.sev]-order[b.sev]) || (b.line - a.line)).slice(0,20);
-
-            const css = `
-              :root { --bg:#0b1020; --card:#111836; --muted:#c9d4ff; --accent:#6ea8fe; --ok:#66d9a8; --crit:#ff5c5c; --high:#ff8f5c; --med:#ffcf5c; --low:#8bd17c; }
-              *{box-sizing:border-box} body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto;background:linear-gradient(180deg,#0b1020,#0a0d1a);color:#eef}
-              .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
-              h1{font-size:24px;margin:0 0 12px}
-              .sub{opacity:.8;margin-bottom:20px}
-              .kpis{display:grid;gap:12px;grid-template-columns:repeat(5,1fr);margin-bottom:16px}
-              .card{background:var(--card);border:1px solid #1b2246;border-radius:16px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
-              .label{font-size:12px;opacity:.8}
-              .val{font-size:28px;font-weight:700;margin-top:6px}
-              .crit{color:var(--crit)} .high{color:var(--high)} .medium{color:var(--med)} .low{color:var(--low)}
-              .btns{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 22px}
-              .btn{padding:10px 14px;border-radius:12px;border:1px solid #25306a;background:#121a3a;color:#cfe1ff;text-decoration:none}
-              .btn:hover{filter:brightness(1.1)}
-              table{width:100%;border-collapse:collapse;overflow:hidden;border-radius:12px}
-              th,td{padding:10px;background:#0f1633;border-bottom:1px solid #232b58}
-              th{text-align:left;font-weight:600}
-              tr:hover td{background:#0e142d}
-              .sev{font-weight:700}
-              footer{opacity:.7;margin-top:18px}
-            `;
-
-            const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-              <meta name="viewport" content="width=device-width,initial-scale=1">
-              <title>Snyk Code – Dashboard</title>
-              <style>${css}</style></head><body>
-              <div class="wrap">
-                <h1>📎 Snyk Code – Dashboard</h1>
-                <div class="sub">Job: ${process.env.JOB_NAME || ''} &nbsp;•&nbsp; Build: ${process.env.BUILD_NUMBER || ''}</div>
-                <div class="kpis">
-                  <div class="card"><div class="label">Total</div><div class="val">${total}</div></div>
-                  <div class="card"><div class="label">Critical</div><div class="val crit">${sevCount.critical}</div></div>
-                  <div class="card"><div class="label">High</div><div class="val high">${sevCount.high}</div></div>
-                  <div class="card"><div class="label">Medium</div><div class="val medium">${sevCount.medium}</div></div>
-                  <div class="card"><div class="label">Low</div><div class="val low">${sevCount.low}</div></div>
-                </div>
-
-                <div class="btns">
-                  <a class="btn" href="snyk-code.html">Ver reporte completo (snyk-to-html)</a>
-                  <a class="btn" href="../">Volver al build</a>
-                  <a class="btn" href="../../">Ir al Job</a>
-                </div>
-
-                <div class="card" style="padding:0">
-                  <table>
-                    <thead><tr>
-                      <th>Sev</th><th>Título</th><th>Archivo</th><th>Línea</th><th>CWE</th>
-                    </tr></thead>
-                    <tbody>
-                      ${top.map(r => `<tr>
-                        <td class="sev ${r.sev}">${r.sev.toUpperCase()}</td>
-                        <td>${r.url ? `<a href="${r.url}">${escapeHtml(r.title)}</a>` : escapeHtml(r.title)}</td>
-                        <td>${escapeHtml(r.path||'')}</td>
-                        <td>${r.line||''}</td>
-                        <td>${escapeHtml(r.cwe||'')}</td>
-                      </tr>`).join('')}
-                    </tbody>
-                  </table>
-                </div>
-                <footer>Generado automáticamente a partir de <code>snyk-code.json</code>.</footer>
-              </div>
-              <script>
-                function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&#34;","'":"&#39;" }[m]));}
-              </script>
-            </body></html>`;
-
-            fs.writeFileSync('snyk-dashboard.html', html, 'utf8');
-            EOF
-
-            exit $EXIT_CODE
+            # (Opcional) sube snapshot a Snyk UI para historial allí también
+            ./snyk monitor \
+              ${SNYK_ORG:+--org="${SNYK_ORG}"} \
+              --project-name="${JOB_NAME}-code" \
+              --source=cli-code || true
           '''
         }
       }
       post {
         always {
-          archiveArtifacts artifacts: 'snyk-code.*', allowEmptyArchive: true
-
-          // Publica el dashboard bonito y el HTML de Snyk como dos entradas
-          publishHTML(target: [
-            reportName: 'Snyk Dashboard',
-            reportDir: '.',
-            reportFiles: 'snyk-dashboard.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true,
-            allowMissing: true
-          ])
-          publishHTML(target: [
-            reportName: 'Snyk Code (detalle)',
-            reportDir: '.',
-            reportFiles: 'snyk-code.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true,
-            allowMissing: true
-          ])
-
-          // Mantén la integración con Static Analysis vía SARIF
-          recordIssues enabledForFailure: true,
-            tools: [sarif(pattern: 'snyk-code.sarif')],
+          // Vista “Static Analysis” con nombre/ID claro y tendencias separadas
+          recordIssues(
+            enabledForFailure: true,
+            // Evita conteo por autor (más rápido y limpio visualmente)
+            skipBlames: true,
+            // Mapea y muestra el SARIF con identidad propia
+            tools: [sarif(name: 'Snyk Code', id: 'snyk-code', pattern: 'results-code.sarif')],
+            // Gate visual: puedes cambiar a DELTA para “nuevos” issues
             qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]]
+          )
+
+          // (Opcional, recomendado para PRs) Publica un “check” bonito en GitHub/GitLab
+          // Requiere el plugin de Checks y la integración VCS de tu Jenkins.
+          // publishIssues issues: [scanForIssues()], analyzeId: 'static-analysis'
         }
       }
     }
-
-
   }
 }
