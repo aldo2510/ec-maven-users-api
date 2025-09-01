@@ -2,7 +2,7 @@ pipeline {
   agent none
 
   environment {
-    SNYK_ORG = 'josealdotrucios' // tu org/slug en Snyk
+    SNYK_ORG = 'josealdotrucios'
   }
 
   stages {
@@ -18,35 +18,66 @@ pipeline {
       }
     }
 
-    // ======== SAST con CLI (opcional) ========
-    stage('Snyk Code (CLI) - Report only') {
-      // Borra esta etapa si quieres exclusivamente plugin
-      agent { docker { image 'snyk/snyk:linux' } }
+    stage('Snyk Code (CLI) – HTML + SARIF + break build') {
+      agent { docker { image 'node:22-alpine' } } // trae npm para instalar utilidades
+      environment {
+        SNYK_DISABLE_ANALYTICS = '1'
+        SNYK_INTEGRATION_NAME  = 'jenkins-cli'
+      }
       steps {
         withCredentials([string(credentialsId: 'organisation-snyk-api-token-secret', variable: 'SNYK_TOKEN')]) {
           sh '''
             set +e
+            npm -g i snyk@latest snyk-to-html@latest
+
             snyk auth "$SNYK_TOKEN"
 
-            # SAST (no rompe el pipeline)
+            # Ejecuta el análisis y GUARDA el exit code para romper el build si encuentra HIGH+
             snyk code test \
               --org="${SNYK_ORG}" \
-              --json-file-output=snyk-code.json || true
+              --severity-threshold=high \
+              --json-file-output=snyk-code.json
+            EXIT_CODE=$?
 
-            # SARIF opcional para plataformas de Code Scanning
+            # Genera SARIF (para Static Analysis en Jenkins/GitHub) y HTML (para ver en Jenkins)
             snyk code test \
               --org="${SNYK_ORG}" \
+              --severity-threshold=high \
               --sarif > snyk-code.sarif || true
 
-            # Snapshot a Snyk (nombre diferenciado)
+            snyk-to-html -i snyk-code.json -o snyk-code.html || true
+
+            # Snapshot a Snyk (no afecta el estado del build)
             snyk monitor \
               --org="${SNYK_ORG}" \
               --project-name="${JOB_NAME}-code" \
               --source=cli-code || true
+
+            # Publicamos reportes y luego devolvemos el exit code real del test
+            exit $EXIT_CODE
           '''
         }
       }
-      post { always { archiveArtifacts artifacts: 'snyk-code.*', allowEmptyArchive: true } }
+      post {
+        always {
+          archiveArtifacts artifacts: 'snyk-code.*', allowEmptyArchive: true
+
+          // Necesita el plugin HTML Publisher
+          publishHTML(target: [
+            reportName: 'Snyk Code',
+            reportDir: '.',
+            reportFiles: 'snyk-code.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true,
+            allowMissing: true
+          ])
+
+          // Necesita el plugin Warnings Next Generation (muestra el SARIF en "Static Analysis")
+          recordIssues enabledForFailure: true,
+                       tools: [sarif(pattern: 'snyk-code.sarif')],
+                       qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]]
+        }
+      }
     }
   }
 }
