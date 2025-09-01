@@ -32,8 +32,7 @@ pipeline {
             failOnError: true,                // sí fallar si hay errores de ejecución
             snykInstallation: 'snyk@latest',  // nombre en Manage Jenkins > Tools
             snykTokenId: 'organisation-snyk-api-token', // credencial tipo "Snyk API Token"
-            targetFile: 'pom.xml',            // o déjalo vacío para autodetección
-            additionalArguments: '--all-projects' // opcional (monorepos/multi-módulo)
+            targetFile: 'pom.xml'            // o déjalo vacío para autodetección
           )
         }
       }
