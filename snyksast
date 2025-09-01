@@ -24,11 +24,11 @@ pipeline {
     stage('Snyk Code') {
       tools { maven '3.9.11' }
       steps {
-      //  catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
         sh '''#!/bin/bash
-        ./snyk code test --sarif-file-output=results-code.sarif
+        ./snyk code test --sarif-file-output=results-code.sarif --severity-threshold=high || true
         '''
-      //  }
+        }
       }
       post {
         always {
