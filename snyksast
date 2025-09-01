@@ -1,86 +1,41 @@
 pipeline {
-  agent none
+  agent any
 
   environment {
-    SNYK_ORG = 'josealdotrucios' // tu org/slug en Snyk
+    SNYK_ORG = 'josealdotrucios'
   }
 
   stages {
-    stage('Build') {
-      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+    stage('Snyk Code') {
+      tools { maven '3.9.11' }
       steps {
-        sh 'mvn -B -DskipTests verify'
-      }
-      post {
-        success {
-          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
-        }
-      }
-    }
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+          withCredentials([string(credentialsId: 'organisation-snyk-api-token-secret', variable: 'SNYK_TOKEN')]) {
+            sh '''
+              set -e
+              # ./snyk auth "$SNYK_TOKEN"
+              # ./snyk code test --sarif-file-output=results-code.sarif --severity-threshold=high
 
-    // ======== SAST con CLI (opcional) ========
-    stage('Snyk Code (CLI) – HTML + SARIF + break build') {
-      agent { docker { image 'node:20-alpine' } } // ya trae npm/npx
-      environment {
-        SNYK_DISABLE_ANALYTICS = '1'
-        SNYK_INTEGRATION_NAME  = 'jenkins-cli'
-      }
-      steps {
-        withCredentials([string(credentialsId: 'organisation-snyk-api-token-secret', variable: 'SNYK_TOKEN')]) {
-          sh '''
-            set +e
+              npx -y snyk@latest auth "$SNYK_TOKEN"
+              npx -y snyk@latest code test \
+                --org='${SNYK_ORG}' \
+                --sarif-file-output=results-code.sarif \
+                --severity-threshold=high
 
-            # Autenticación y versión (sin instalaciones globales)
-            npx -y snyk@latest --version
-            npx -y snyk@latest auth "$SNYK_TOKEN"
-
-            # Análisis SAST con umbral de severidad; CAPTURAMOS el exit code para romper el build
-            npx -y snyk@latest code test \
-              --org="${SNYK_ORG}" \
-              --severity-threshold=high \
-              --json-file-output=snyk-code.json
-            EXIT_CODE=$?
-
-            # Artefactos extra (no afectan el estado del build)
-            npx -y snyk@latest code test \
-              --org="${SNYK_ORG}" \
-              --severity-threshold=high \
-              --sarif > snyk-code.sarif || true
-
-            npx -y snyk-to-html@latest -i snyk-code.json -o snyk-code.html || true
-
-            # Snapshot a Snyk (monitor)
-            npx -y snyk@latest monitor \
-              --org="${SNYK_ORG}" \
-              --project-name="${JOB_NAME}-code" \
-              --source=cli-code || true
-
-            # Devolver el exit code real del test para romper el build si hubo HIGH/CRITICAL
-            exit $EXIT_CODE
-          '''
+              npx -y snyk@latest monitor --org='${SNYK_ORG}' --project-name="${JOB_NAME}-code" --source=cli-code || true
+            '''
+          }
         }
       }
       post {
         always {
-          archiveArtifacts artifacts: 'snyk-code.*', allowEmptyArchive: true
-
-          // HTML Publisher: ver reporte navegable en la página del job
-          publishHTML(target: [
-            reportName: 'Snyk Code',
-            reportDir: '.',
-            reportFiles: 'snyk-code.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true,
-            allowMissing: true
-          ])
-
-          // Warnings NG: muestra SARIF en "Static Analysis"
-          recordIssues enabledForFailure: true,
-                      tools: [sarif(pattern: 'snyk-code.sarif')],
-                      qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]]
+          recordIssues(
+            enabledForFailure: true,
+            tools: [sarif(name: 'Snyk Code', id: 'snyk-code', pattern: 'results-code.sarif')],
+            qualityGates: [[threshold: 1, type: 'TOTAL', unstable: false]]
+          )
         }
       }
     }
-
   }
 }
