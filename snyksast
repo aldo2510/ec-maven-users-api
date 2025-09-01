@@ -41,7 +41,7 @@ pipeline {
     }
 
     stage('Snyk Code (SARIF)') {
-      tools { maven '3.8.7' }
+      tools { maven '3.9.11' }
       steps {
         // Marca el stage como FAILURE si hay hallazgos que elevan el exit code,
         // pero mantiene el build en SUCCESS (útil si quieres ver reportes).
