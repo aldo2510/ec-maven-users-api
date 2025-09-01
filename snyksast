@@ -1,0 +1,52 @@
+pipeline {
+  agent none
+
+  environment {
+    SNYK_ORG = 'josealdotrucios' // tu org/slug en Snyk
+  }
+
+  stages {
+    stage('Build') {
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+      steps {
+        sh 'mvn -B -DskipTests verify'
+      }
+      post {
+        success {
+          archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
+        }
+      }
+    }
+
+    // ======== SAST con CLI (opcional) ========
+    stage('Snyk Code (CLI) - Report only') {
+      // Borra esta etapa si quieres exclusivamente plugin
+      agent { docker { image 'snyk/snyk:linux' } }
+      steps {
+        withCredentials([string(credentialsId: 'organisation-snyk-api-token', variable: 'SNYK_TOKEN')]) {
+          sh '''
+            set +e
+            snyk auth "$SNYK_TOKEN"
+
+            # SAST (no rompe el pipeline)
+            snyk code test \
+              --org="${SNYK_ORG}" \
+              --json-file-output=snyk-code.json || true
+
+            # SARIF opcional para plataformas de Code Scanning
+            snyk code test \
+              --org="${SNYK_ORG}" \
+              --sarif > snyk-code.sarif || true
+
+            # Snapshot a Snyk (nombre diferenciado)
+            snyk monitor \
+              --org="${SNYK_ORG}" \
+              --project-name="${JOB_NAME}-code" \
+              --source=cli-code || true
+          '''
+        }
+      }
+      post { always { archiveArtifacts artifacts: 'snyk-code.*', allowEmptyArchive: true } }
+    }
+  }
+}
