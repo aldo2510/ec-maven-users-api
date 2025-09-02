@@ -26,7 +26,7 @@ pipeline {
                 snykSecurity(
                     organisation: "${SNYK_ORG}",
                     projectName: "${JOB_NAME}",
-                    severity: 'high',                 // umbral de severidad mostrado
+                    severity: 'medium',                 // umbral de severidad mostrado
                     monitorProjectOnBuild: true,      // hace 'snyk monitor' automáticamente
                     failOnIssues: false,              // NO romper el build por hallazgos
                     failOnError: true,                // sí fallar si hay errores de ejecución
@@ -35,7 +35,7 @@ pipeline {
                     targetFile: 'pom.xml'            // o déjalo vacío para autodetección
                 )
             }
-      }
+        }
     }
   }
 }
