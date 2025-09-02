@@ -69,18 +69,30 @@ pipeline {
       steps {
         sh '''
           set -eux
-          # 👉 Por ahora: solo reporta, no detiene el pipeline
-          # Si quieres que el build se DETENGA al encontrar HIGH/CRITICAL,
-          # elimina el "|| true" y agrega "--exit-code 1".
+
+          echo "==> Trivy (tabla en consola: HIGH/CRITICAL)"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+              --scanners vuln \
+              --no-progress \
+              --format table \
+              --severity HIGH,CRITICAL \
+              "${IMAGE_NAME}" || true
+
+          echo "==> Trivy (SARIF a archivo)"
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD":/workspace \
             aquasec/trivy:latest image \
               --scanners vuln \
+              --no-progress \
               --format sarif \
               -o /workspace/trivy-image.sarif \
               --severity HIGH,CRITICAL \
               "${IMAGE_NAME}" || true
+
+          echo "Reporte SARIF: $PWD/trivy-image.sarif"
         '''
         archiveArtifacts artifacts: 'trivy-image.sarif', allowEmptyArchive: true
       }
