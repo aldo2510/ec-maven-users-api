@@ -1,0 +1,87 @@
+pipeline {
+  agent { label 'controller' }
+
+  environment {
+    APP_NAME     = 'mi-application'
+    PROJECT_ID   = 'hypnotic-epoch-411523'
+    REGION       = 'us-central1'
+    REPO         = 'cloud-jenkins-registry'
+    REGISTRY     = "${REGION}-docker.pkg.dev"
+    GCLOUD_CREDS = credentials('gcloud-creds') // secret file (JSON)
+    IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
+  }
+
+  stages {
+    stage('Build con Maven') {
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+      steps {
+        sh '''
+          set -eux
+          mvn -v
+          mvn clean package -DskipTests
+        '''
+        archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
+        stash name: 'app-jar', includes: 'target/*.jar'
+      }
+    }
+
+    stage('Docker Build (local)') {
+      agent {
+        docker {
+          image 'docker:24-cli'
+          args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
+        }
+      }
+      steps {
+        script {
+          try {
+            copyArtifacts(
+              projectName: env.JOB_NAME,
+              selector: [$class: 'SpecificBuildSelector', buildNumber: "${env.BUILD_NUMBER}"],
+              filter: 'target/*.jar',
+              fingerprintArtifacts: true,
+              flatten: true,
+              target: 'target'
+            )
+            echo 'copyArtifacts OK'
+          } catch (err) {
+            echo "copyArtifacts no disponible (${err}); usando fallback unstash"
+            dir('target') { }
+            unstash 'app-jar'
+          }
+        }
+        sh '''
+          set -eux
+          docker --version
+          echo "Building ${IMAGE_NAME}"
+          docker build -t "${IMAGE_NAME}" .
+        '''
+      }
+    }
+
+    stage('Trivy Scan (image)') {
+      agent {
+        docker {
+          image 'docker:24-cli'
+          args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
+        }
+      }
+      steps {
+        sh '''
+          set -eux
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD":/workspace \
+            aquasec/trivy:latest image \
+              --scanners vuln \
+              --format sarif \
+              -o /workspace/trivy-image.sarif \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              "${IMAGE_NAME}"
+        '''
+        archiveArtifacts artifacts: 'trivy-image.sarif', allowEmptyArchive: true
+      }
+    }
+  }
+}
