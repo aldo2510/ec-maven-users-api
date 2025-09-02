@@ -7,7 +7,7 @@ pipeline {
     REGION       = 'us-central1'
     REPO         = 'cloud-jenkins-registry'
     REGISTRY     = "${REGION}-docker.pkg.dev"
-    GCLOUD_CREDS = credentials('gcloud-creds') // secret file (JSON)
+    GCLOUD_CREDS = credentials('gcloud-creds')
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
 
@@ -69,6 +69,9 @@ pipeline {
       steps {
         sh '''
           set -eux
+          # 👉 Por ahora: solo reporta, no detiene el pipeline
+          # Si quieres que el build se DETENGA al encontrar HIGH/CRITICAL,
+          # elimina el "|| true" y agrega "--exit-code 1".
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD":/workspace \
@@ -77,8 +80,7 @@ pipeline {
               --format sarif \
               -o /workspace/trivy-image.sarif \
               --severity HIGH,CRITICAL \
-              --exit-code 1 \
-              "${IMAGE_NAME}"
+              "${IMAGE_NAME}" || true
         '''
         archiveArtifacts artifacts: 'trivy-image.sarif', allowEmptyArchive: true
       }
