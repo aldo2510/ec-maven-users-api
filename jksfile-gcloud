@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     APP_NAME     = 'mi-application'
-    PROJECT_ID   = 'hypnotic-epoch-411523' //Poyecto de google
+    PROJECT_ID   = 'thermal-antenna-469417-r6' //Poyecto de google
     REGION       = 'us-central1'
     REPO         = 'cloud-jenkins-registry'
     REGISTRY     = "${REGION}-docker.pkg.dev"
