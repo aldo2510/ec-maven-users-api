@@ -82,9 +82,7 @@ pipeline {
             --tenant="${AZ_TENANT_ID}"
     
           az account set --subscription "${AZ_SUBSCRIPTION_ID}"
-    
-          az group create -n "${RESOURCE_GROUP}" -l "${LOCATION}"
-    
+        
           # ACI no actualiza in-place: borrar si existe
           if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
             az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
