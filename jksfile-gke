@@ -84,37 +84,51 @@ pipeline {
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
-      // gcloud + kubectl dentro de la imagen oficial
-      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
+      // necesitamos root para apt-get
+      agent { docker { image 'gcr.io/google.com/cloudsdktool/google-cloud-cli:latest'
+                       args '-u 0:0' } }
       steps {
         sh '''
-          set -eux
-          # 1) Auth y proyecto
+          set -euxo pipefail
+    
+          # ---- deps: kubectl + envsubst + auth plugin ----
+          apt-get update
+          apt-get install -y gettext-base google-cloud-sdk-gke-gcloud-auth-plugin
+    
+          # kubectl (repos oficiales de k8s para una versión reciente)
+          if ! command -v kubectl >/dev/null 2>&1; then
+            apt-get install -y curl ca-certificates gnupg
+            curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg \
+              https://packages.cloud.google.com/apt/doc/apt-key.gpg
+            echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] \
+              https://apt.kubernetes.io/ kubernetes-xenial main" \
+              > /etc/apt/sources.list.d/kubernetes.list
+            apt-get update && apt-get install -y kubectl
+          fi
+    
+          # Requerido por GKE para kubectl
+          export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+    
+          # ---- gcloud auth + kubeconfig ----
           gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
           gcloud config set project "${PROJECT_ID}"
-
-          # 2) Credenciales del cluster (Autopilot es regional)
           gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}"
-
-          # 3) Crear namespace si no existe
-          # (idempotente)
-          envsubst < k8s/namespace.yaml | kubectl apply -f -
-
-          # 4) Render de manifests inyectando variables (APP_NAME, IMAGE_NAME)
-          # Usa tag inmutable para cada despliegue:
-          export IMAGE_NAME="${IMAGE_IMMUT}"
+    
+          # ---- render & apply manifests (imagen como variable) ----
           export APP_NAME="${APP_NAME}"
-
+          export IMAGE_NAME="${IMAGE_IMMUT}"  # usar tag inmutable
+          export K8S_NAMESPACE="${K8S_NAMESPACE}"
+    
+          envsubst < k8s/namespace.yaml | kubectl apply -f -
           envsubst < k8s/deployment.yaml | kubectl apply -f -
           envsubst < k8s/service.yaml    | kubectl apply -f -
-
-          # 5) Esperar rollout
+    
+          # Espera rollout y muestra info
           kubectl -n "${K8S_NAMESPACE}" rollout status deploy/${APP_NAME} --timeout=5m
-
-          # 6) Info útil para logs
           kubectl -n "${K8S_NAMESPACE}" get deploy,po,svc -o wide
         '''
       }
     }
+
   }
 }
