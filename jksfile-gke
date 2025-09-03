@@ -84,51 +84,46 @@ pipeline {
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
-      // necesitamos root para apt-get
       agent { docker { image 'gcr.io/google.com/cloudsdktool/google-cloud-cli:latest'
                        args '-u 0:0' } }
       steps {
         sh '''
-          set -euxo pipefail
+          set -eux
     
-          # ---- deps: kubectl + envsubst + auth plugin ----
+          # Dependencias mínimas
           apt-get update
-          apt-get install -y gettext-base google-cloud-sdk-gke-gcloud-auth-plugin
+          apt-get install -y gettext-base google-cloud-sdk-gke-gcloud-auth-plugin curl ca-certificates
     
-          # kubectl (repos oficiales de k8s para una versión reciente)
+          # kubectl (binario oficial)
           if ! command -v kubectl >/dev/null 2>&1; then
-            apt-get install -y curl ca-certificates gnupg
-            curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg \
-              https://packages.cloud.google.com/apt/doc/apt-key.gpg
-            echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] \
-              https://apt.kubernetes.io/ kubernetes-xenial main" \
-              > /etc/apt/sources.list.d/kubernetes.list
-            apt-get update && apt-get install -y kubectl
+            KVER="$(curl -sL https://dl.k8s.io/release/stable.txt)"
+            curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl"
+            chmod +x /usr/local/bin/kubectl
           fi
     
-          # Requerido por GKE para kubectl
           export USE_GKE_GCLOUD_AUTH_PLUGIN=True
     
-          # ---- gcloud auth + kubeconfig ----
+          # Auth y kubeconfig
           gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
           gcloud config set project "${PROJECT_ID}"
           gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}"
     
-          # ---- render & apply manifests (imagen como variable) ----
+          # Variables para los YAML (la imagen viene de tu stage anterior: ${IMAGE_NAME})
           export APP_NAME="${APP_NAME}"
-          export IMAGE_NAME="${IMAGE_IMMUT}"  # usar tag inmutable
+          export IMAGE_NAME="${IMAGE_NAME}"        # ahora mismo es :latest (simple)
           export K8S_NAMESPACE="${K8S_NAMESPACE}"
     
+          # Apply con sustitución
           envsubst < k8s/namespace.yaml | kubectl apply -f -
           envsubst < k8s/deployment.yaml | kubectl apply -f -
           envsubst < k8s/service.yaml    | kubectl apply -f -
     
-          # Espera rollout y muestra info
           kubectl -n "${K8S_NAMESPACE}" rollout status deploy/${APP_NAME} --timeout=5m
           kubectl -n "${K8S_NAMESPACE}" get deploy,po,svc -o wide
         '''
       }
     }
+
 
   }
 }
