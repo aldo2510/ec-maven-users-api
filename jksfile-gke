@@ -112,8 +112,10 @@ pipeline {
           envsubst < k8s/namespace.yaml | kubectl apply -f -
           envsubst < k8s/deployment.yaml | kubectl apply -f -
           envsubst < k8s/service.yaml    | kubectl apply -f -
-    
-          kubectl -n "${K8S_NAMESPACE}" rollout status deploy/${APP_NAME} --timeout=5m
+
+          kubectl -n "${K8S_NAMESPACE}" rollout restart deploy/${APP_NAME}
+          kubectl -n "${K8S_NAMESPACE}" rollout status  deploy/${APP_NAME} --timeout=10m
+
           kubectl -n "${K8S_NAMESPACE}" get deploy,po,svc -o wide
         '''
       }
