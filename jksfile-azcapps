@@ -61,13 +61,11 @@ pipeline {
         }
       }
       agent {
-        // root dentro del contenedor para evitar problemas de permisos
-        docker { image 'mcr.microsoft.com/azure-cli'; args '-u 0:0' }
+        docker { image 'mcr.microsoft.com/azure-cli'; args '-u 0:0' }  // para evitar permisos
       }
       environment {
         IMAGE_REF        = "${ACR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}"
-        // Evita que az escriba en '/.azure'
-        AZURE_CONFIG_DIR = "${WORKSPACE}/.azure"
+        AZURE_CONFIG_DIR = "${WORKSPACE}/.azure"   // evita escribir en '/.azure'
         HOME             = "${WORKSPACE}"
       }
       steps {
@@ -75,19 +73,22 @@ pipeline {
           set -eux
           mkdir -p "$AZURE_CONFIG_DIR"
     
-          # IMPORTANTE: usar forma con "=" porque el secret comienza con "-"
+          # Login con Service Principal (usa forma con "=" por si la contraseña empieza con "-")
           az login --service-principal \
             --username="${AZ_CLIENT_ID}" \
             --password="${AZ_CLIENT_SECRET}" \
             --tenant="${AZ_TENANT_ID}"
-    
           az account set --subscription "${AZ_SUBSCRIPTION_ID}"
-        
-          # ACI no actualiza in-place: borrar si existe
+    
+          # RG idempotente
+          az group create -n "${RESOURCE_GROUP}" -l "${LOCATION}"
+    
+          # Borrar si ya existe (ACI no actualiza in-place)
           if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
             az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
           fi
     
+          # Etiqueta DNS pública (minúsculas)
           DNS_LABEL=$(echo "aci-${APP_NAME}-${BUILD_NUMBER}" | tr '[:upper:]' '[:lower:]')
     
           az container create \
@@ -101,13 +102,15 @@ pipeline {
             --restart-policy Always \
             --ip-address Public \
             --ports ${CONTAINER_PORT} \
-            --dns-name-label "${DNS_LABEL}"
+            --dns-name-label "${DNS_LABEL}" \
+            --os-type Linux                 # <<< clave para evitar osType=null
     
           FQDN=$(az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" --query "ipAddress.fqdn" -o tsv)
           echo "ACI URL: http://${FQDN}:${CONTAINER_PORT}"
         '''
       }
     }
+
 
 
   }
