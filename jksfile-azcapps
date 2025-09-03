@@ -1,188 +1,111 @@
 pipeline {
-    agent { label 'controller' }
-    environment {
-        IMAGE_NAME = "mi-aplicacion-java"
-        IMAGE_TAG = "latest"
-        DOCKERFILE_PATH = "Dockerfile"
-        DOCKER_CREDS = credentials('jksdockerregistryus2p01')
-        ACR_REGISTRY = "jksdockerregistryus2p01.azurecr.io"
-        APP_NAME = "myapp"
-     }
- 
-
-    stages {
-        stage('Compilar con Maven') {
-            agent {
-                docker { image 'maven:3.8.4-openjdk-17-slim' }
-            }
-            steps {
-                sh 'mvn clean package'
-                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
-            }
-        }
-
-        stage('Build Image') {
-             steps {
-                 copyArtifacts filter: 'target/*.jar',
-                               fingerprintArtifacts: true,
-                               projectName: '${JOB_NAME}',
-                               flatten: true,
-                               selector: specific('${BUILD_NUMBER}'),
-                               target: 'target'
-                 sh "docker build -t ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} -f ${DOCKERFILE_PATH} ."
-             }
-         }
- 
-        stage('Publish Image') {
-            steps {
-                script {
-                    sh 'docker login ${ACR_REGISTRY} -u ${DOCKER_CREDS_USR} -p ${DOCKER_CREDS_PSW}'
-                    sh 'docker tag ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER'
-                    sh 'docker push ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER'
-                    sh 'docker logout'
-                }
-            }
-        }
-
-        // stage('Deploy') {
-        //     agent {
-        //         docker { image 'mcr.microsoft.com/azure-cli' }
-        //     }
-        //     steps {
-        //         script {
-        //             sh """az containerapp up \
-        //                     --name ${APP_NAME} \
-        //                     --image ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER \
-        //                     --ingress external \
-        //                     --target-port 8080"""
-        //         }
-        //     }
-        // }
-
-    }
-    post {
-        success {
-            echo 'La compilación y las pruebas fueron exitosas.'
-        }
-        failure {
-            echo 'Hubo un error en la compilación o las pruebas.'
-        }
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-pipeline {
   agent { label 'controller' }
 
   environment {
-    IMAGE_NAME       = "mi-aplicacion-java"
-    IMAGE_TAG        = "latest"
-    DOCKERFILE_PATH  = "Dockerfile"
+    // --- Build / Docker ---
+    IMAGE_NAME       = 'mi-aplicacion-java'
+    IMAGE_TAG        = 'latest'
+    DOCKERFILE_PATH  = 'Dockerfile'
+    DOCKER_CREDS     = credentials('jksdockerregistryus2p01')   // crea DOCKER_CREDS_USR / DOCKER_CREDS_PSW
+    ACR_REGISTRY     = 'jksdockerregistryus2p01.azurecr.io'
 
-    // Creds ACR (usuario admin o scoped token)
-    DOCKER_CREDS     = credentials('jksdockerregistryus2p01')
-    ACR_REGISTRY     = "jksdockerregistryus2p01.azurecr.io"
+    // --- Azure ACI ---
+    APP_NAME         = 'myapp'
+    ACI_NAME         = 'aci-myapp'          // minúsculas
+    RESOURCE_GROUP   = 'rsgraldo'         // ajústalo
+    LOCATION         = 'eastus'             // ajústalo
+    CONTAINER_PORT   = '8080'
 
-    APP_NAME         = "myapp"            // nombre lógico de la app
-    ACI_NAME         = "aci-myapp"        // nombre del container group (minúsculas)
-    RESOURCE_GROUP   = "rsgraldo"       // <-- ajusta
-    LOCATION         = "eastus"           // <-- ajusta
-    CONTAINER_PORT   = "8080"             // puerto donde escucha tu app
-
+    // --- Service Principal (Secret Text) ---
+    AZ_CLIENT_ID       = credentials('az-client-id')
+    AZ_CLIENT_SECRET   = credentials('az-client-secret')
+    AZ_TENANT_ID       = credentials('az-tenant-id')
+    AZ_SUBSCRIPTION_ID = credentials('az-subscription-id')
   }
 
+  options { timestamps() }
+
   stages {
+
     stage('Compilar con Maven') {
       agent { docker { image 'maven:3.8.4-openjdk-17-slim' } }
       steps {
-        sh 'mvn clean package'
+        sh 'mvn -B -DskipTests clean package'
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
       }
     }
 
     stage('Build Image') {
       steps {
-        copyArtifacts filter: 'target/*.jar',
-                      fingerprintArtifacts: true,
-                      projectName: '${JOB_NAME}',
-                      flatten: true,
-                      selector: specific('${BUILD_NUMBER}'),
-                      target: 'target'
-        sh "docker build -t ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} -f ${DOCKERFILE_PATH} ."
+        sh 'docker build -t ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} -f ${DOCKERFILE_PATH} .'
       }
     }
 
     stage('Publish Image') {
       steps {
-        script {
-          sh 'docker login ${ACR_REGISTRY} -u ${DOCKER_CREDS_USR} -p ${DOCKER_CREDS_PSW}'
-          sh 'docker tag ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER'
-          sh 'docker push ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER'
-          sh 'docker logout'
-        }
+        sh '''
+          set -eux
+          docker login ${ACR_REGISTRY} -u ${DOCKER_CREDS_USR} -p ${DOCKER_CREDS_PSW}
+          docker tag ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${ACR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
+          docker push ${ACR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
+          docker logout
+        '''
       }
     }
 
     stage('Deploy to Azure Container Instances') {
+      when {
+        expression {
+          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
+          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+        }
+      }
       agent { docker { image 'mcr.microsoft.com/azure-cli' } }
       environment {
         IMAGE_REF = "${ACR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}"
-        // Etiqueta DNS pública (debe ser única en la región)
-        DNS_LABEL = "aci-${APP_NAME}-${BUILD_NUMBER}".toLowerCase()
       }
       steps {
-        withCredentials([
-          string(credentialsId: 'az-client-id',        variable: 'AZ_CLIENT_ID'),
-          string(credentialsId: 'az-client-secret',    variable: 'AZ_CLIENT_SECRET'),
-          string(credentialsId: 'az-tenant-id',        variable: 'AZ_TENANT_ID'),
-          string(credentialsId: 'az-subscription-id',  variable: 'AZ_SUBSCRIPTION_ID'),
-          usernamePassword(credentialsId: 'jksdockerregistryus2p01', usernameVariable: 'ACR_USER', passwordVariable: 'ACR_PASS')
-        ]) {
-          sh '''
-            set -eux
-            az login --service-principal -u "$AZ_CLIENT_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID"
-            az account set --subscription "$AZ_SUBSCRIPTION_ID"
+        sh '''
+          set -eux
+          # Login con Service Principal
+          az login --service-principal -u "${AZ_CLIENT_ID}" -p "${AZ_CLIENT_SECRET}" --tenant "${AZ_TENANT_ID}"
+          az account set --subscription "${AZ_SUBSCRIPTION_ID}"
 
-            # Si existe, lo eliminamos (ACI no soporta update in-place)
-            if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
-              az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
-            fi
+          # RG idempotente
+          az group create -n "${RESOURCE_GROUP}" -l "${LOCATION}"
 
-            # Crear el container group público
-            az container create \
-              --resource-group "${RESOURCE_GROUP}" \
-              --name "${ACI_NAME}" \
-              --image "${IMAGE_REF}" \
-              --registry-login-server "${ACR_REGISTRY}" \
-              --registry-username "${ACR_USER}" \
-              --registry-password "${ACR_PASS}" \
-              --cpu 1 --memory 1.5 \
-              --restart-policy Always \
-              --ip-address Public \
-              --ports ${CONTAINER_PORT} \
-              --dns-name-label "${DNS_LABEL}" \
-              --environment-variables JAVA_OPTS="-Xms256m -Xmx512m"
+          # Borrar si ya existe (ACI no actualiza in-place)
+          if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
+            az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
+          fi
 
-            # Mostrar la URL pública
-            FQDN=$(az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" --query "ipAddress.fqdn" -o tsv)
-            echo "ACI URL: http://${FQDN}:${CONTAINER_PORT}"
-          '''
-        }
+          # Etiqueta DNS única en la región
+          DNS_LABEL=$(echo "aci-${APP_NAME}-${BUILD_NUMBER}" | tr '[:upper:]' '[:lower:]')
+
+          # Crear el Container Group público
+          az container create \
+            --resource-group "${RESOURCE_GROUP}" \
+            --name "${ACI_NAME}" \
+            --image "${IMAGE_REF}" \
+            --registry-login-server "${ACR_REGISTRY}" \
+            --registry-username "${DOCKER_CREDS_USR}" \
+            --registry-password "${DOCKER_CREDS_PSW}" \
+            --cpu 1 --memory 1.5 \
+            --restart-policy Always \
+            --ip-address Public \
+            --ports ${CONTAINER_PORT} \
+            --dns-name-label "${DNS_LABEL}"
+
+          # Mostrar la URL
+          FQDN=$(az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" --query "ipAddress.fqdn" -o tsv)
+          echo "ACI URL: http://${FQDN}:${CONTAINER_PORT}"
+        '''
       }
     }
   }
 
   post {
     success { echo 'OK: build, push y deploy a Azure Container Instances.' }
-    failure { echo 'ERROR en build/push/deploy.' }
+    failure { echo 'ERROR en el pipeline.' }
   }
 }
