@@ -53,36 +53,44 @@ pipeline {
       }
     }
 
-    stage('Deploy to Azure Container Instances') {
+      stage('Deploy to Azure Container Instances') {
+      // opcional: limitar a main
       when {
         expression {
           def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
-      agent { docker { image 'mcr.microsoft.com/azure-cli' } }
+      agent { 
+        // correr como root ayuda a evitar permisos raros dentro del workspace
+        docker { image 'mcr.microsoft.com/azure-cli' ; args '-u 0:0' } 
+      }
       environment {
-        IMAGE_REF = "${ACR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}"
+        IMAGE_REF        = "${ACR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}"
+        // Evita que az escriba en '/.azure'
+        AZURE_CONFIG_DIR = "${WORKSPACE}/.azure"
+        HOME             = "${WORKSPACE}"
       }
       steps {
         sh '''
           set -eux
-          # Login con Service Principal
+          mkdir -p "$AZURE_CONFIG_DIR"
+    
+          # Login con Service Principal (ya cargado como secrets)
           az login --service-principal -u "${AZ_CLIENT_ID}" -p "${AZ_CLIENT_SECRET}" --tenant "${AZ_TENANT_ID}"
           az account set --subscription "${AZ_SUBSCRIPTION_ID}"
-
+    
           # RG idempotente
           az group create -n "${RESOURCE_GROUP}" -l "${LOCATION}"
-
+    
           # Borrar si ya existe (ACI no actualiza in-place)
           if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
             az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
           fi
-
-          # Etiqueta DNS única en la región
+    
+          # Etiqueta DNS pública (única por región)
           DNS_LABEL=$(echo "aci-${APP_NAME}-${BUILD_NUMBER}" | tr '[:upper:]' '[:lower:]')
-
-          # Crear el Container Group público
+    
           az container create \
             --resource-group "${RESOURCE_GROUP}" \
             --name "${ACI_NAME}" \
@@ -95,13 +103,13 @@ pipeline {
             --ip-address Public \
             --ports ${CONTAINER_PORT} \
             --dns-name-label "${DNS_LABEL}"
-
-          # Mostrar la URL
+    
           FQDN=$(az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" --query "ipAddress.fqdn" -o tsv)
           echo "ACI URL: http://${FQDN}:${CONTAINER_PORT}"
         '''
       }
     }
+
   }
 
   post {
