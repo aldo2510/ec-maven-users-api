@@ -152,8 +152,6 @@ pipeline {
             az login --service-principal -u "$AZ_CLIENT_ID" -p "$AZ_CLIENT_SECRET" --tenant "$AZ_TENANT_ID"
             az account set --subscription "$AZ_SUBSCRIPTION_ID"
 
-            az group create -n "${RESOURCE_GROUP}" -l "${LOCATION}"
-
             # Si existe, lo eliminamos (ACI no soporta update in-place)
             if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
               az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
