@@ -53,17 +53,16 @@ pipeline {
       }
     }
 
-      stage('Deploy to Azure Container Instances') {
-      // opcional: limitar a main
+    stage('Deploy to Azure Container Instances') {
       when {
         expression {
           def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
           b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
         }
       }
-      agent { 
-        // correr como root ayuda a evitar permisos raros dentro del workspace
-        docker { image 'mcr.microsoft.com/azure-cli' ; args '-u 0:0' } 
+      agent {
+        // root dentro del contenedor para evitar problemas de permisos
+        docker { image 'mcr.microsoft.com/azure-cli'; args '-u 0:0' }
       }
       environment {
         IMAGE_REF        = "${ACR_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}"
@@ -76,19 +75,21 @@ pipeline {
           set -eux
           mkdir -p "$AZURE_CONFIG_DIR"
     
-          # Login con Service Principal (ya cargado como secrets)
-          az login --service-principal -u "${AZ_CLIENT_ID}" -p "${AZ_CLIENT_SECRET}" --tenant "${AZ_TENANT_ID}"
+          # IMPORTANTE: usar forma con "=" porque el secret comienza con "-"
+          az login --service-principal \
+            --username="${AZ_CLIENT_ID}" \
+            --password="${AZ_CLIENT_SECRET}" \
+            --tenant="${AZ_TENANT_ID}"
+    
           az account set --subscription "${AZ_SUBSCRIPTION_ID}"
     
-          # RG idempotente
           az group create -n "${RESOURCE_GROUP}" -l "${LOCATION}"
     
-          # Borrar si ya existe (ACI no actualiza in-place)
+          # ACI no actualiza in-place: borrar si existe
           if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
             az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
           fi
     
-          # Etiqueta DNS pública (única por región)
           DNS_LABEL=$(echo "aci-${APP_NAME}-${BUILD_NUMBER}" | tr '[:upper:]' '[:lower:]')
     
           az container create \
@@ -109,6 +110,7 @@ pipeline {
         '''
       }
     }
+
 
   }
 
