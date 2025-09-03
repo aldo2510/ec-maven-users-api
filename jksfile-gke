@@ -1,0 +1,120 @@
+pipeline {
+  agent { label 'controller' }
+
+  environment {
+    APP_NAME     = 'mi-application'
+    PROJECT_ID   = 'thermal-antenna-469417-r6'
+    REGION       = 'us-central1'
+    REPO         = 'cloud-jenkins-registry'
+    REGISTRY     = "${REGION}-docker.pkg.dev"
+    GCLOUD_CREDS = credentials('gcloud-creds') // JSON SA
+    CLUSTER_NAME = 'lab21-gke'
+    K8S_NAMESPACE= 'lab'
+    // tag inmutable (usa GIT_COMMIT corto o BUILD_NUMBER si no existe)
+    IMAGE_TAG    = "${env.GIT_COMMIT?.take(7) ?: env.BUILD_NUMBER}"
+    IMAGE_BASEREF= "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}"
+    IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
+    IMAGE_IMMUT  = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:${IMAGE_TAG}"
+  }
+
+  stages {
+
+    stage('Build con Maven') {
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+      steps {
+        sh '''
+          set -eux
+          mvn -v
+          mvn clean package -DskipTests
+        '''
+        archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
+        stash name: 'app-jar', includes: 'target/*.jar'
+      }
+    }
+
+    stage('Docker Build & Push (main)') {
+      when {
+        expression {
+          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
+          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+        }
+      }
+      agent {
+        docker {
+          image 'docker:24-cli'
+          args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
+        }
+      }
+      steps {
+        script {
+          try {
+            copyArtifacts(
+              projectName: env.JOB_NAME,
+              selector: [$class: 'SpecificBuildSelector', buildNumber: "${env.BUILD_NUMBER}"],
+              filter: 'target/*.jar',
+              fingerprintArtifacts: true,
+              flatten: true,
+              target: 'target'
+            )
+          } catch (err) {
+            dir('target') { }
+            unstash 'app-jar'
+          }
+        }
+
+        sh '''
+          set -eux
+          docker --version
+          docker login -u _json_key --password-stdin "https://${REGISTRY}" < "${GCLOUD_CREDS}"
+
+          # build + 2 tags (inmutable y latest)
+          docker build -t "${IMAGE_IMMUT}" .
+          docker tag "${IMAGE_IMMUT}" "${IMAGE_NAME}"
+
+          docker push "${IMAGE_IMMUT}"
+          docker push "${IMAGE_NAME}"
+        '''
+      }
+    }
+
+    stage('Deploy a Kubernetes (main)') {
+      when {
+        expression {
+          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
+          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+        }
+      }
+      // gcloud + kubectl dentro de la imagen oficial
+      agent { docker { image 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim' } }
+      steps {
+        sh '''
+          set -eux
+          # 1) Auth y proyecto
+          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
+          gcloud config set project "${PROJECT_ID}"
+
+          # 2) Credenciales del cluster (Autopilot es regional)
+          gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}"
+
+          # 3) Crear namespace si no existe
+          # (idempotente)
+          envsubst < k8s/namespace.yaml | kubectl apply -f -
+
+          # 4) Render de manifests inyectando variables (APP_NAME, IMAGE_NAME)
+          # Usa tag inmutable para cada despliegue:
+          export IMAGE_NAME="${IMAGE_IMMUT}"
+          export APP_NAME="${APP_NAME}"
+
+          envsubst < k8s/deployment.yaml | kubectl apply -f -
+          envsubst < k8s/service.yaml    | kubectl apply -f -
+
+          # 5) Esperar rollout
+          kubectl -n "${K8S_NAMESPACE}" rollout status deploy/${APP_NAME} --timeout=5m
+
+          # 6) Info útil para logs
+          kubectl -n "${K8S_NAMESPACE}" get deploy,po,svc -o wide
+        '''
+      }
+    }
+  }
+}
