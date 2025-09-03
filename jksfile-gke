@@ -110,7 +110,7 @@ pipeline {
     
           # Variables para los YAML (la imagen viene de tu stage anterior: ${IMAGE_NAME})
           export APP_NAME="${APP_NAME}"
-          export IMAGE_NAME="${IMAGE_NAME}"        # ahora mismo es :latest (simple)
+          export IMAGE_NAME="${IMAGE_IMMUT}"        # ahora mismo es :latest (simple)
           export K8S_NAMESPACE="${K8S_NAMESPACE}"
     
           # Apply con sustitución
