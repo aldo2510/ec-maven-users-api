@@ -37,6 +37,14 @@ pipeline {
 
     stage('Build Image') {
       steps {
+        copyArtifacts(
+          projectName: env.JOB_NAME,
+          selector: [$class: 'SpecificBuildSelector', buildNumber: "${env.BUILD_NUMBER}"],
+          filter: 'target/*.jar',
+          fingerprintArtifacts: true,
+          flatten: true,
+          target: 'target'
+        )
         sh 'docker build -t ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} -f ${DOCKERFILE_PATH} .'
       }
     }
