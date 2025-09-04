@@ -8,7 +8,7 @@ pipeline {
     REPO         = 'cloud-jenkins-registry'
     REGISTRY     = "${REGION}-docker.pkg.dev"
     GCLOUD_CREDS = credentials('gcloud-creds') // JSON SA
-    CLUSTER_NAME = 'lab21-gke'
+    CLUSTER_NAME = 'lab21-gke-v2'
     K8S_NAMESPACE= 'lab'
     // tag inmutable (usa GIT_COMMIT corto o BUILD_NUMBER si no existe)
     IMAGE_TAG    = "${env.GIT_COMMIT?.take(7) ?: env.BUILD_NUMBER}"
@@ -112,6 +112,9 @@ pipeline {
           envsubst < k8s/namespace.yaml | kubectl apply -f -
           envsubst < k8s/deployment.yaml | kubectl apply -f -
           envsubst < k8s/service.yaml    | kubectl apply -f -
+          
+          cat k8s/deployment.yaml
+          cat k8s/service.yaml
 
           kubectl -n "${K8S_NAMESPACE}" rollout restart deploy/${APP_NAME}
           kubectl -n "${K8S_NAMESPACE}" rollout status  deploy/${APP_NAME} --timeout=10m
