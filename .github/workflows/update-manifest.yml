@@ -1,0 +1,51 @@
+name: update-manifest (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      new_tag:
+        description: "Nuevo tag de la imagen (solo el tag)"
+        required: true
+        type: string
+      file_path:
+        description: "Ruta del manifest a modificar"
+        required: false
+        default: "k8s/test.yml"
+        type: string
+
+permissions:
+  contents: write          # para commitear
+  pull-requests: write     # para abrir el PR
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mostrar línea de imagen (antes)
+        run: |
+          grep -nE '^\s*image:' "${{ inputs.file_path }}" || true
+
+      - name: Cambiar solo el tag de la imagen
+        env:
+          FILE_PATH: ${{ inputs.file_path }}
+          NEW_TAG: ${{ inputs.new_tag }}
+        run: |
+          # Reemplaza el tag después del último ":" en la línea 'image: ...'
+          sed -E -i 's#^( *image: +)([^:]+):[^[:space:]]+#\1\2:'"$NEW_TAG"'#' "$FILE_PATH"
+
+      - name: Mostrar línea de imagen (después)
+        run: |
+          grep -nE '^\s*image:' "${{ inputs.file_path }}" || true
+
+      # Abre PR usando GITHUB_TOKEN (sin PAT)
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: bump-image-${{ github.run_id }}
+          commit-message: "chore: bump image tag to ${{ inputs.new_tag }}"
+          title: "Bump image tag to ${{ inputs.new_tag }}"
+          body: "Automated via reusable workflow"
+          add-paths: |
+            ${{ inputs.file_path }}
