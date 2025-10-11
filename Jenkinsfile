@@ -1,5 +1,6 @@
 pipeline {
-    agent { label 'controller' }
+    // agent { label 'controller' }
+    agent any
     environment {
         IMAGE_NAME = "mi-aplicacion-java"
         IMAGE_TAG = "latest"
@@ -95,4 +96,5 @@ pipeline {
         }
     }
 }
+
 
