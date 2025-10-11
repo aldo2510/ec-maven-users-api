@@ -5,8 +5,8 @@ pipeline {
         IMAGE_NAME = "mi-aplicacion-java"
         IMAGE_TAG = "latest"
         DOCKERFILE_PATH = "Dockerfile"
-        DOCKER_CREDS = credentials('azcontainerregistrycna')
-        ACR_REGISTRY = "azcontainerregistrycna.azurecr.io"
+        // DOCKER_CREDS = credentials('azcontainerregistrycna')
+        // ACR_REGISTRY = "azcontainerregistrycna.azurecr.io"
         APP_NAME = "myapp"
      }
  
@@ -65,7 +65,7 @@ pipeline {
                 script {
                     sh 'docker login ${ACR_REGISTRY} -u ${DOCKER_CREDS_USR} -p ${DOCKER_CREDS_PSW}'
                     sh 'docker tag ${ACR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER'
-                    sh 'docker push ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER'
+                    //sh 'docker push ${ACR_REGISTRY}/${IMAGE_NAME}:$BUILD_NUMBER'
                     sh 'docker logout'
                 }
             }
@@ -96,5 +96,6 @@ pipeline {
         }
     }
 }
+
 
 
