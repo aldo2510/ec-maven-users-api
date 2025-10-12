@@ -1,5 +1,6 @@
 pipeline {
-  agent { label 'controller' }
+  agent any
+  //agent { label 'controller' }
 
   environment {
     APP_NAME     = 'mi-application'
