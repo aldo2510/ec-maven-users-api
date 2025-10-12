@@ -7,48 +7,46 @@ on:
     branches: ["main"]
 
 permissions:
-  contents: read
-  # Requerido solo si vas a subir el SARIF al panel de Security (Code scanning)
-  security-events: write
+  contents: read   # no publicamos a Security, así que no hace falta security-events
 
 jobs:
   snyk-code:
     runs-on: ubuntu-latest
     env:
+      # crea este secreto en: Settings > Secrets and variables > Actions
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Instala el CLI de Snyk una vez
+      # Instala el CLI de Snyk
       - name: Setup Snyk CLI
         uses: snyk/actions/setup@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-      # Ejecuta SAST (no rompe el pipeline por defecto)
+      # Ejecuta SAST (NO falla el pipeline)
       - name: Run Snyk Code (SAST)
         run: |
           set -eux
           snyk --version
-          # Análisis SAST con salida SARIF (no-fail). Ajusta el umbral si quieres.
           snyk code test \
             --sarif-file-output=snyk-code.sarif \
             --severity-threshold=low || true
 
-      # (Opcional) Resumen rápido en el Job Summary
+      # Resumen legible en el Summary del job
       - name: Build SAST summary
         run: |
           set -eux
           echo "### Snyk Code (SAST) summary" > snyk-code-summary.md
           echo "" >> snyk-code-summary.md
-          # Totales por nivel de severidad desde el SARIF
+          # Totales por nivel desde SARIF
           jq -r '
             def sev(x): (.runs[0].results // [] | map(.level) | map(select(.==x)) | length);
             "Total findings: \((.runs[0].results // [] | length))",
             "error: \(sev(\"error\")) | warning: \(sev(\"warning\")) | note: \(sev(\"note\"))"
-          ' snyk-code.sarif >> snyk-code-summary.md
+          ' snyk-code.sarif >> snyk-code-summary.md || true
           echo "" >> snyk-code-summary.md
           echo "#### Top 20 findings" >> snyk-code-summary.md
           echo "| Level | Rule | Location | Message |" >> snyk-code-summary.md
@@ -60,17 +58,18 @@ jobs:
                 lvl: (.level // "-"),
                 rule: (.ruleId // "-"),
                 loc: (
-                  ( .locations[0].physicalLocation.artifactLocation.uri // "-" ) + ":" +
-                  ( .locations[0].physicalLocation.region.startLine // 0 | tostring )
+                  ((.locations[0].physicalLocation.artifactLocation.uri // "-") + ":" +
+                  ((.locations[0].physicalLocation.region.startLine // 0) | tostring))
                 ),
                 msg: (.message.text // "-")
               })
             | .[]
-            | "| \(.lvl) | `\(.rule)` | \(.loc) | \(.msg | gsub("\\n"; " ")) |"
-          ' snyk-code.sarif >> snyk-code-summary.md
+            | "| \(.lvl) | `\(.rule)` | \(.loc) | \(.msg | gsub("\n"; " ")) |"
+          ' snyk-code.sarif >> snyk-code-summary.md || true
+          # Publicar en el Summary del job
           cat snyk-code-summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      # Guarda los resultados como artefactos
+      # Artefactos descargables (reporte + resumen)
       - name: Upload Snyk Code artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,10 +79,3 @@ jobs:
             snyk-code.sarif
             snyk-code-summary.md
           if-no-files-found: warn
-
-      # (Opcional) Publica el SARIF en Security > Code scanning (requiere repo público o GHAS)
-      - name: Upload SARIF to GitHub Security
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: snyk-code.sarif
