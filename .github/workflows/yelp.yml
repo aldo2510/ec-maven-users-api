@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Ajusta exclusiones (regex) según tu repo
-      DETECT_SECRETS_EXCLUDES: '(\/\.git\/|\/node_modules\/|\/target\/|\/build\/|\/dist\/|\/coverage\/|\/\\.secrets\.(baseline|json|diff|new)$)'
+      DETECT_SECRETS_EXCLUDES: '(\/\.git\/|\/node_modules\/|\/target\/|\/build\/|\/dist\/|\/coverage\/|\/\.secrets\.(baseline|json|diff|new)$)'
+      ARTIFACTS_DIR: detect-secrets-artifacts
 
     steps:
       - name: Checkout
@@ -39,6 +39,7 @@ jobs:
       - name: Run detect-secrets scan
         run: |
           set -euxo pipefail
+          mkdir -p "${ARTIFACTS_DIR}"
 
           if [ -f ".secrets.baseline" ]; then
             echo "Using existing baseline (.secrets.baseline)"
@@ -47,6 +48,8 @@ jobs:
               --exclude-files "${DETECT_SECRETS_EXCLUDES}" \
               --baseline .secrets.baseline \
               > .secrets.json
+            # Guarda también el baseline en los artefactos por conveniencia
+            cp -f .secrets.baseline "${ARTIFACTS_DIR}/.secrets.baseline"
           else
             echo "No baseline present; scanning entire repo"
             detect-secrets scan \
@@ -56,21 +59,17 @@ jobs:
           fi
 
           # ----- Resumen con jq -----
-          # Total de hallazgos
           count=$(jq '[.results[] | length] | add // 0' .secrets.json)
           echo "Possible secrets found: ${count}"
 
-          # Hallazgos por tipo
           echo "Findings by type:"
           jq -r '
             .results
             | to_entries[]
             | .value[]
             | .type
-          ' .secrets.json \
-          | sort | uniq -c | sed 's/^/  - /' || true
+          ' .secrets.json | sort | uniq -c | sed 's/^/  - /' || true
 
-          # Archivos afectados y cantidad
           echo "Files with findings:"
           jq -r '
             .results
@@ -78,7 +77,24 @@ jobs:
             | "[\(.value|length)] \(.key)"
           ' .secrets.json || true
 
-          # Falla el job si count > 0
+          # Copiar SIEMPRE el reporte a la carpeta de artefactos
+          cp -f .secrets.json "${ARTIFACTS_DIR}/secrets-report.json"
+
+          # Añadir resumen al Job Summary
+          {
+            echo "### Detect Secrets summary"
+            echo ""
+            echo "**Possible secrets found:** ${count}"
+            echo ""
+            echo "**Files with findings:**"
+            jq -r '
+              .results
+              | to_entries[]
+              | "- [\(.value|length)] \(.key)"
+            ' .secrets.json || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Fallar el job si hubo hallazgos
           if [ "${count}" -gt 0 ]; then
             exit 1
           fi
@@ -88,5 +104,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: detect-secrets-report
-          path: .secrets.json
-          if-no-files-found: warn
+          path: ${{ github.workspace }}/detect-secrets-artifacts
+          if-no-files-found: error
+
+      # (Opcional) Paso de depuración por si volviera a fallar el upload
+      - name: Debug workspace
+        if: failure()
+        run: |
+          set -x
+          pwd
+          ls -la
+          ls -la "${ARTIFACTS_DIR}" || true
