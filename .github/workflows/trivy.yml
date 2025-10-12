@@ -10,8 +10,9 @@ permissions:
   contents: read
 
 env:
-  APP_NAME: mi-application
+  APP_NAME: mi-aplicacion-java
   IMAGE_TAG: latest
+  IMAGE_NAME: mi-aplicacion-java:latest
 
 jobs:
   build-trivy:
@@ -33,13 +34,6 @@ jobs:
           set -eux
           mvn -v
           mvn clean package -DskipTests
-
-      # Construimos un tag LOCAL (no se publica)
-      - name: Compute IMAGE_NAME (local)
-        run: |
-          set -eux
-          echo "IMAGE_NAME=${APP_NAME}:${IMAGE_TAG}" >> "$GITHUB_ENV"
-          echo "Using IMAGE_NAME=$IMAGE_NAME"
 
       - name: Build Docker image (local only)
         run: |
@@ -79,7 +73,6 @@ jobs:
               "$IMAGE_NAME" || true
           ls -l trivy-image.sarif || true
 
-      # Guarda el SARIF como artefacto descargable
       - name: Upload SARIF artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,10 +80,3 @@ jobs:
           name: trivy-image-sarif
           path: trivy-image.sarif
           if-no-files-found: warn
-
-      # (Opcional) Publica el SARIF en Security > Code scanning
-      # - name: Upload SARIF to GitHub Security
-      #   if: always()
-      #   uses: github/codeql-action/upload-sarif@v3
-      #   with:
-      #     sarif_file: trivy-image.sarif
