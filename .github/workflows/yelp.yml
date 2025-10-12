@@ -12,8 +12,10 @@ permissions:
 jobs:
   detect-secrets:
     runs-on: ubuntu-latest
+
     env:
-      DETECT_SECRETS_EXCLUDES: '(\/\.git\/|\/node_modules\/|\/target\/|\/build\/|\/dist\/|\/coverage\/|\/\.secrets\.(baseline|json|diff|new)$)'
+      # Ajusta exclusiones (regex) según tu repo
+      DETECT_SECRETS_EXCLUDES: '(\/\.git\/|\/node_modules\/|\/target\/|\/build\/|\/dist\/|\/coverage\/|\/\\.secrets\.(baseline|json|diff|new)$)'
 
     steps:
       - name: Checkout
@@ -24,7 +26,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install detect-secrets
         run: |
@@ -33,19 +35,6 @@ jobs:
           pip install --upgrade pip
           pip install "detect-secrets==1.5.0"
           detect-secrets --version || true
-
-      # OPCIONAL: sonda para validar (dejar comentado)
-      # - name: Inject fake secrets (for validation only)
-      #   if: ${{ github.event_name == 'pull_request' }}
-      #   run: |
-      #     mkdir -p tests
-      #     cat > tests/secret_probe.txt <<'EOF'
-      #     AWS_ACCESS_KEY_ID=AKIA1234567890ABCD12
-      #     AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-      #     GITHUB_TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      #     SLACK_BOT_TOKEN=xoxb-123456789012-123456789012-ABCdefGHIjklMNOpqrSTUvwx
-      #     JWT_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTYifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
-      #     EOF
 
       - name: Run detect-secrets scan
         run: |
@@ -66,30 +55,33 @@ jobs:
               > .secrets.json
           fi
 
-          # Guardar script de resumen (evita heredocs en YAML)
-          cat > summarize_scan.py <<'PY'
-import json, sys, collections, pathlib
-p = pathlib.Path(".secrets.json")
-if not p.exists():
-    print("No report found (.secrets.json).")
-    sys.exit(2)
-with p.open() as f:
-    data = json.load(f)
-results = data.get("results", {})
-count = sum(len(v) for v in results.values())
-by_type = collections.Counter()
-for path, findings in results.items():
-    for fnd in findings:
-        by_type[fnd.get("type","UNKNOWN")] += 1
-print(f"Possible secrets found: {count}")
-for t, c in by_type.most_common():
-    print(f"  - {t}: {c}")
-for path, findings in results.items():
-    print(f"[{len(findings)}] {path}")
-sys.exit(1 if count > 0 else 0)
-PY
+          # ----- Resumen con jq -----
+          # Total de hallazgos
+          count=$(jq '[.results[] | length] | add // 0' .secrets.json)
+          echo "Possible secrets found: ${count}"
 
-          python summarize_scan.py
+          # Hallazgos por tipo
+          echo "Findings by type:"
+          jq -r '
+            .results
+            | to_entries[]
+            | .value[]
+            | .type
+          ' .secrets.json \
+          | sort | uniq -c | sed 's/^/  - /' || true
+
+          # Archivos afectados y cantidad
+          echo "Files with findings:"
+          jq -r '
+            .results
+            | to_entries[]
+            | "[\(.value|length)] \(.key)"
+          ' .secrets.json || true
+
+          # Falla el job si count > 0
+          if [ "${count}" -gt 0 ]; then
+            exit 1
+          fi
 
       - name: Upload report
         if: always()
