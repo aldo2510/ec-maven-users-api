@@ -1,4 +1,5 @@
 name: Build & Trivy Scan 2
+
 on:
   push:
     branches: ["main"]
@@ -37,16 +38,26 @@ jobs:
       - name: Build Docker image (local only)
         run: |
           set -eux
+          # Fallback por si IMAGE_NAME llegara vacío
+          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
+
           docker --version
           echo "Building $IMAGE_NAME"
           docker build -t "$IMAGE_NAME" .
+
+          echo "==> Local images (debug)"
+          docker image ls --no-trunc | head -n 20
+
+          echo "==> Verificando que la imagen exista"
+          docker image inspect "$IMAGE_NAME" >/dev/null
 
       # ---- TRIVY SCAN (tabla) ----
       - name: Trivy scan (table)
         continue-on-error: true
         run: |
           set -eux
-          echo "==> Trivy (HIGH/CRITICAL in console)"
+          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
+          echo "==> Trivy (HIGH/CRITICAL in console) on $IMAGE_NAME"
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image \
@@ -61,6 +72,7 @@ jobs:
         continue-on-error: true
         run: |
           set -eux
+          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD":/workspace \
@@ -71,14 +83,22 @@ jobs:
               -o /workspace/trivy-image.json \
               --severity CRITICAL,HIGH,MEDIUM,LOW \
               "$IMAGE_NAME" || true
-          ls -l trivy-image.json || true
+          test -s trivy-image.json && ls -l trivy-image.json || true
 
       - name: Build Markdown summary
         run: |
           set -eux
+          # Asegura jq
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
           if [ -f trivy-image.json ]; then
             echo "### Trivy summary for \`$IMAGE_NAME\`" > trivy-summary.md
-            jq -r '
+
+            # Programa jq en archivo para evitar problemas de comillas
+            cat > jq_summary.jq <<'JQ'
               def vulns: [.Results[].Vulnerabilities[]?];
               def c(sev): (vulns | map(select(.Severity==sev)) | length);
               "Total findings: \((vulns|length))",
@@ -90,11 +110,12 @@ jobs:
               (vulns
                 | sort_by(.Severity) | reverse
                 | .[:10]
-                | map("| \(.Severity) | \(.VulnerabilityID) | `\(.PkgName)` | \(.InstalledVersion // "-") | \(.FixedVersion // "-") | \(.Target // "-") |")
+                | map("| \(.Severity) | \(.VulnerabilityID) | `\(.PkgName)` | \(.InstalledVersion // \"-\") | \(.FixedVersion // \"-\") | \(.Target // \"-\") |")
                 | .[]
               )
-            ' trivy-image.json >> trivy-summary.md
+            JQ
 
+            jq -r -f jq_summary.jq trivy-image.json >> trivy-summary.md || true
             echo "" >> trivy-summary.md
             echo "_El reporte completo se guarda como artefacto._" >> trivy-summary.md
             cat trivy-summary.md >> "$GITHUB_STEP_SUMMARY"
