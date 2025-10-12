@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
 
+# Define el nombre de la imagen aquí (¡clave!):
 env:
   IMAGE_NAME: mi-aplicacion-java:latest
 
@@ -36,14 +37,28 @@ jobs:
       - name: Build Docker image (local only)
         run: |
           set -eux
+          # fallback por si IMAGE_NAME llega vacío
+          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
+
           docker --version
           echo "Building $IMAGE_NAME"
           docker build -t "$IMAGE_NAME" .
 
+          echo "==> Local images (para depurar)"
+          docker image ls --no-trunc | head -n 20
+
+          echo "==> Verificando que la imagen exista"
+          docker image inspect "$IMAGE_NAME" >/dev/null
+
       # ---- TRIVY SCAN (tabla en logs) ----
       - name: Trivy scan (console table)
+        continue-on-error: true
         run: |
           set -eux
+          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
+
+          echo "Escanenado imagen: $IMAGE_NAME"
+          # usa docker.sock para que Trivy dentro del contenedor lea la imagen local
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image \
@@ -58,6 +73,8 @@ jobs:
       - name: Trivy scan (JSON for summary)
         run: |
           set -eux
+          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
+
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD":/workspace \
@@ -69,6 +86,8 @@ jobs:
               -o /workspace/trivy-image.json \
               --severity CRITICAL,HIGH,MEDIUM,LOW \
               "$IMAGE_NAME"
+
+          test -s trivy-image.json
           ls -l trivy-image.json
 
       # ---- RESUMEN EN EL JOB SUMMARY ----
@@ -94,7 +113,6 @@ jobs:
             )
           ' trivy-image.json >> trivy-summary.md
 
-          # Mostrar también un enlace a JSON
           echo "" >> trivy-summary.md
           echo "_El JSON completo se adjunta como artefacto en esta corrida._" >> trivy-summary.md
 
