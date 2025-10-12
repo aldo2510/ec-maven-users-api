@@ -7,7 +7,7 @@ pipeline {
     REGION       = 'us-central1'
     REPO         = 'cloud-jenkins-registry'
     REGISTRY     = "${REGION}-docker.pkg.dev"
-    GCLOUD_CREDS = credentials('gcloud-creds')
+    //GCLOUD_CREDS = credentials('gcloud-creds')
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
 
