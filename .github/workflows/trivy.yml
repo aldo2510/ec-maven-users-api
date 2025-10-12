@@ -54,6 +54,7 @@ jobs:
               --scanners vuln \
               --no-progress \
               --format table \
+              --exit-code 0 \ 
               --severity HIGH,CRITICAL \
               "$IMAGE_NAME" || true
 
