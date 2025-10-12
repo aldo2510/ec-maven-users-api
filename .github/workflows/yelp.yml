@@ -11,12 +11,9 @@ permissions:
 
 jobs:
   detect-secrets:
-    name: Scan repo with detect-secrets
     runs-on: ubuntu-latest
-
     env:
-      # Ajusta exclusiones a tu repo (regex):
-      DETECT_SECRETS_EXCLUDES: '(\/\.git\/|\/node_modules\/|\/target\/|\/build\/|\/dist\/|\/coverage\/|\/.secrets\.(baseline|json|diff|new)$)'
+      DETECT_SECRETS_EXCLUDES: '(\/\.git\/|\/node_modules\/|\/target\/|\/build\/|\/dist\/|\/coverage\/|\/\.secrets\.(baseline|json|diff|new)$)'
 
     steps:
       - name: Checkout
@@ -31,14 +28,26 @@ jobs:
 
       - name: Install detect-secrets
         run: |
+          set -euxo pipefail
           python -V
           pip install --upgrade pip
           pip install "detect-secrets==1.5.0"
           detect-secrets --version || true
-          
+
+      # OPCIONAL: sonda para validar (dejar comentado)
+      # - name: Inject fake secrets (for validation only)
+      #   if: ${{ github.event_name == 'pull_request' }}
+      #   run: |
+      #     mkdir -p tests
+      #     cat > tests/secret_probe.txt <<'EOF'
+      #     AWS_ACCESS_KEY_ID=AKIA1234567890ABCD12
+      #     AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+      #     GITHUB_TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      #     SLACK_BOT_TOKEN=xoxb-123456789012-123456789012-ABCdefGHIjklMNOpqrSTUvwx
+      #     JWT_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTYifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+      #     EOF
+
       - name: Run detect-secrets scan
-        id: scan
-        shell: bash
         run: |
           set -euxo pipefail
 
@@ -57,10 +66,14 @@ jobs:
               > .secrets.json
           fi
 
-          # Resumen y código de salida
-          python - << 'PY'
-import json, sys, collections
-with open(".secrets.json") as f:
+          # Guardar script de resumen (evita heredocs en YAML)
+          cat > summarize_scan.py <<'PY'
+import json, sys, collections, pathlib
+p = pathlib.Path(".secrets.json")
+if not p.exists():
+    print("No report found (.secrets.json).")
+    sys.exit(2)
+with p.open() as f:
     data = json.load(f)
 results = data.get("results", {})
 count = sum(len(v) for v in results.values())
@@ -73,9 +86,10 @@ for t, c in by_type.most_common():
     print(f"  - {t}: {c}")
 for path, findings in results.items():
     print(f"[{len(findings)}] {path}")
-# Fail the job if any findings
 sys.exit(1 if count > 0 else 0)
 PY
+
+          python summarize_scan.py
 
       - name: Upload report
         if: always()
