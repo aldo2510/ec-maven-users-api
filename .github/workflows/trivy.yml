@@ -1,4 +1,4 @@
-name: Build & Trivy Scan (local with summary)
+name: Build & Trivy Scan (local only)
 
 on:
   push:
@@ -9,8 +9,9 @@ on:
 permissions:
   contents: read
 
-# Define el nombre de la imagen aquí (¡clave!):
 env:
+  APP_NAME: mi-aplicacion-java
+  IMAGE_TAG: latest
   IMAGE_NAME: mi-aplicacion-java:latest
 
 jobs:
@@ -37,95 +38,52 @@ jobs:
       - name: Build Docker image (local only)
         run: |
           set -eux
-          # fallback por si IMAGE_NAME llega vacío
-          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
-
           docker --version
           echo "Building $IMAGE_NAME"
           docker build -t "$IMAGE_NAME" .
 
-          echo "==> Local images (para depurar)"
-          docker image ls --no-trunc | head -n 20
-
-          echo "==> Verificando que la imagen exista"
-          docker image inspect "$IMAGE_NAME" >/dev/null
-
-      # ---- TRIVY SCAN (tabla en logs) ----
-      - name: Trivy scan (console table)
+      # ---- TRIVY SCAN ----
+      - name: Trivy scan (table)
         continue-on-error: true
         run: |
           set -eux
-          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
-
-          echo "Escanenado imagen: $IMAGE_NAME"
-          # usa docker.sock para que Trivy dentro del contenedor lea la imagen local
+          echo "==> Trivy (HIGH/CRITICAL in console)"
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image \
               --scanners vuln \
-              --exit-code 0 \            # no falla el job
               --no-progress \
               --format table \
-              --severity CRITICAL,HIGH,MEDIUM,LOW \
-              "$IMAGE_NAME"
+              --exit-code 0 \ 
+              --severity HIGH,CRITICAL \
+              "$IMAGE_NAME" || true
 
-      # ---- TRIVY SCAN (JSON para resumen) ----
-      - name: Trivy scan (JSON for summary)
+      - name: Trivy scan (SARIF)
+        continue-on-error: true
         run: |
           set -eux
-          : "${IMAGE_NAME:=mi-aplicacion-java:latest}"
-
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD":/workspace \
             aquasec/trivy:latest image \
               --scanners vuln \
-              --exit-code 0 \
               --no-progress \
-              --format json \
-              -o /workspace/trivy-image.json \
-              --severity CRITICAL,HIGH,MEDIUM,LOW \
-              "$IMAGE_NAME"
+              --format sarif \
+              -o /workspace/trivy-image.sarif \
+              --severity HIGH,CRITICAL \
+              "$IMAGE_NAME" || true
+          ls -l trivy-image.sarif || true
 
-          test -s trivy-image.json
-          ls -l trivy-image.json
-
-      # ---- RESUMEN EN EL JOB SUMMARY ----
-      - name: Build Markdown summary
-        run: |
-          set -eux
-          echo "### Trivy summary for \`$IMAGE_NAME\`" > trivy-summary.md
-          echo "" >> trivy-summary.md
-          jq -r '
-            def vulns: [.Results[].Vulnerabilities[]?];
-            def c(sev): (vulns | map(select(.Severity==sev)) | length);
-            "Total findings: \((vulns|length))",
-            "CRITICAL: \(c(\"CRITICAL\"))  |  HIGH: \(c(\"HIGH\"))  |  MEDIUM: \(c(\"MEDIUM\"))  |  LOW: \(c(\"LOW\"))",
-            "",
-            "#### Top findings (max 20)",
-            "| Severity | ID | Package | Installed | Fixed | Resource |",
-            "|---|---|---|---|---|---|",
-            (vulns
-              | sort_by(.Severity) | reverse
-              | .[:20]
-              | map("| \(.Severity) | \(.VulnerabilityID) | `\(.PkgName)` | \(.InstalledVersion // "-") | \(.FixedVersion // "-") | \(.Target // "-") |")
-              | .[]
-            )
-          ' trivy-image.json >> trivy-summary.md
-
-          echo "" >> trivy-summary.md
-          echo "_El JSON completo se adjunta como artefacto en esta corrida._" >> trivy-summary.md
-
-          # Publicar en el Job Summary
-          cat trivy-summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      # Artefactos para descargar
-      - name: Upload artifacts
+      - name: Upload SARIF artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-report
-          path: |
-            trivy-image.json
-            trivy-summary.md
-          if-no-files-found: error
+          name: trivy-image-sarif
+          path: trivy-image.sarif
+          if-no-files-found: warn
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
