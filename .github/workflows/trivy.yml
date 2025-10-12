@@ -54,7 +54,6 @@ jobs:
               --scanners vuln \
               --no-progress \
               --format table \
-              --exit-code 0 \ 
               --severity HIGH,CRITICAL \
               "$IMAGE_NAME" || true
 
@@ -81,9 +80,3 @@ jobs:
           name: trivy-image-sarif
           path: trivy-image.sarif
           if-no-files-found: warn
-
-      - name: Upload SARIF to GitHub Security
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-image.sarif
