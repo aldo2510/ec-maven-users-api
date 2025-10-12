@@ -1,5 +1,4 @@
 name: Detect Secrets (Yelp)
-
 on:
   push:
     branches: [ "**" ]
