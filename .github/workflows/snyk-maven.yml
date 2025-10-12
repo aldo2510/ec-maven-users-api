@@ -1,5 +1,10 @@
 name: Example workflow for Maven using Snyk
 on: push
+
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   security:
     runs-on: ubuntu-latest
