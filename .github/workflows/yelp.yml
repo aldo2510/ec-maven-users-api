@@ -1,0 +1,86 @@
+name: Detect Secrets (Yelp)
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+permissions:
+  contents: read
+
+jobs:
+  detect-secrets:
+    name: Scan repo with detect-secrets
+    runs-on: ubuntu-latest
+
+    env:
+      # Ajusta exclusiones a tu repo (regex):
+      DETECT_SECRETS_EXCLUDES: '(\/\.git\/|\/node_modules\/|\/target\/|\/build\/|\/dist\/|\/coverage\/|\/.secrets\.(baseline|json|diff|new)$)'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install detect-secrets
+        run: |
+          python -V
+          pip install --upgrade pip
+          pip install "detect-secrets==1.5.0"
+          detect-secrets --version || true
+          
+      - name: Run detect-secrets scan
+        id: scan
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          if [ -f ".secrets.baseline" ]; then
+            echo "Using existing baseline (.secrets.baseline)"
+            detect-secrets scan \
+              --all-files \
+              --exclude-files "${DETECT_SECRETS_EXCLUDES}" \
+              --baseline .secrets.baseline \
+              > .secrets.json
+          else
+            echo "No baseline present; scanning entire repo"
+            detect-secrets scan \
+              --all-files \
+              --exclude-files "${DETECT_SECRETS_EXCLUDES}" \
+              > .secrets.json
+          fi
+
+          # Resumen y código de salida
+          python - << 'PY'
+import json, sys, collections
+with open(".secrets.json") as f:
+    data = json.load(f)
+results = data.get("results", {})
+count = sum(len(v) for v in results.values())
+by_type = collections.Counter()
+for path, findings in results.items():
+    for fnd in findings:
+        by_type[fnd.get("type","UNKNOWN")] += 1
+print(f"Possible secrets found: {count}")
+for t, c in by_type.most_common():
+    print(f"  - {t}: {c}")
+for path, findings in results.items():
+    print(f"[{len(findings)}] {path}")
+# Fail the job if any findings
+sys.exit(1 if count > 0 else 0)
+PY
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detect-secrets-report
+          path: .secrets.json
+          if-no-files-found: warn
