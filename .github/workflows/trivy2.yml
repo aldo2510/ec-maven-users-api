@@ -88,19 +88,22 @@ jobs:
       - name: Build Markdown summary
         run: |
           set -eux
-          # Asegura jq
+          # Asegura jq (por si la imagen del runner cambia)
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y jq
           fi
-
+      
           if [ -f trivy-image.json ]; then
             echo "### Trivy summary for \`$IMAGE_NAME\`" > trivy-summary.md
-
-            # Programa jq en archivo para evitar problemas de comillas
-            cat > jq_summary.jq <<'JQ'
+            echo "" >> trivy-summary.md
+      
+            # Totales y top 10 (sin heredoc; comillas escapadas)
+            jq -r '
               def vulns: [.Results[].Vulnerabilities[]?];
+              def order: {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1};
               def c(sev): (vulns | map(select(.Severity==sev)) | length);
+      
               "Total findings: \((vulns|length))",
               "CRITICAL: \(c(\"CRITICAL\"))  |  HIGH: \(c(\"HIGH\"))  |  MEDIUM: \(c(\"MEDIUM\"))  |  LOW: \(c(\"LOW\"))",
               "",
@@ -108,20 +111,21 @@ jobs:
               "| Severity | ID | Package | Installed | Fixed | Resource |",
               "|---|---|---|---|---|---|",
               (vulns
-                | sort_by(.Severity) | reverse
+                | sort_by( (order[.Severity] // 0), .VulnerabilityID ) | reverse
                 | .[:10]
                 | map("| \(.Severity) | \(.VulnerabilityID) | `\(.PkgName)` | \(.InstalledVersion // \"-\") | \(.FixedVersion // \"-\") | \(.Target // \"-\") |")
                 | .[]
               )
-            JQ
-
-            jq -r -f jq_summary.jq trivy-image.json >> trivy-summary.md || true
+            ' trivy-image.json >> trivy-summary.md || true
+      
             echo "" >> trivy-summary.md
             echo "_El reporte completo se guarda como artefacto._" >> trivy-summary.md
+            # Publica el resumen en el panel del job
             cat trivy-summary.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No se generó trivy-image.json, omitiendo resumen."
           fi
+
 
       - name: Upload artifacts
         if: always()
