@@ -1,6 +1,6 @@
-package com.entrenamiento.certero.repository;
+package com.cloudnative.academy.repository;
 
-import com.entrenamiento.certero.domain.User;
+import com.cloudnative.academy.domain.User;
 import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;

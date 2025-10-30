@@ -1,7 +1,7 @@
-package com.entrenamiento.certero.service;
+package com.cloudnative.academy.service;
 
-import com.entrenamiento.certero.domain.User;
-import com.entrenamiento.certero.repository.UserRepository;
+import com.cloudnative.academy.domain.User;
+import com.cloudnative.academy.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 

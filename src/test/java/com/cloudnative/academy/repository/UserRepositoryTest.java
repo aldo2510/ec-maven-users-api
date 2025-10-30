@@ -1,6 +1,6 @@
-package com.entrenamiento.certero.repository;
+package com.cloudnative.academy.repository;
 
-import com.entrenamiento.certero.domain.User;
+import com.cloudnative.academy.domain.User;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 

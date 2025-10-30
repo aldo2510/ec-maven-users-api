@@ -1,7 +1,7 @@
-package com.entrenamiento.certero.api;
+package com.cloudnative.academy.api;
 
-import com.entrenamiento.certero.domain.User;
-import com.entrenamiento.certero.service.UserService;
+import com.cloudnative.academy.domain.User;
+import com.cloudnative.academy.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
