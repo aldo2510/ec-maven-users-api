@@ -33,9 +33,13 @@ jobs:
           echo "::error title=Invalid version::La versión '${VERSION}' no cumple el formato semver x.y.z"
           exit 1
         fi
-
         echo "POM_VERSION=$VERSION" >> "$GITHUB_ENV"
 
+    - name: Validate POM version (semver x.y.z)
+      uses: aldo2510/customized-actions/.github/actions/validate-pom@main
+      with:
+        pom-path: pom.xml
+    
     - name: Build with Maven
       run: mvn clean package -DskipTests
       
