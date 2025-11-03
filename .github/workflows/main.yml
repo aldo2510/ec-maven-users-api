@@ -1,0 +1,19 @@
+name: Continuous Integration
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+
+  publish:
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      JFROG_CLI_HOME_DIR: ${{ github.workspace }}/.jfrog
+      SERVER_JFROG: ${{ vars.1 }}
+      TOKEN_JFROG:  ${{ secrets.TOKEN_JFROG }}
+    steps:
+      - uses: actions/checkout@v4
+  
+      - name: Debug env var llega desde Environment
+        run: echo "SERVER_JFROG='${{ vars.SERVER_JFROG }}'"
