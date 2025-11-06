@@ -6,13 +6,9 @@ jobs:
     runs-on: arcautopilot
     container:
       image: ghcr.io/catthehacker/ubuntu:act-latest
-      resources:
-        limits:
-          cpu: "500m"
-          memory: "512Mi"
     steps:
-      - name: Hello from GKE Autopilot
+      - name: Hello from ARC Autopilot
         run: |
-          echo "✅ ARC Autopilot ejecutando en GKE"
+          echo "✅ ARC Autopilot ejecutando en GKE Autopilot"
           echo "Runner: $RUNNER_NAME"
           uname -a
