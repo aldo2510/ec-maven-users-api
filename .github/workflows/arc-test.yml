@@ -5,7 +5,7 @@ on:
 jobs:
   demo:
     runs-on: arcautopilot
-    container: ghcr.io/chainguard-images/busybox:latest
+#    container: ghcr.io/chainguard-images/busybox:latest
     steps:
       - name: Hello
         run: |
