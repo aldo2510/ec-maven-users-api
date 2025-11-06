@@ -5,11 +5,10 @@ on:
 jobs:
   demo:
     runs-on: arcautopilot
+    container: ghcr.io/chainguard-images/busybox:latest
     steps:
-      - name: Chequear entorno
+      - name: Hello
         run: |
-          echo "ARC Autopilot corriendo en GKE Autopilot"
+          echo "✅ ARC Autopilot en GKE listo"
           uname -a
-          df -h
-          echo "GitHub repo: $GITHUB_REPOSITORY"
-
+          echo "Repo: $GITHUB_REPOSITORY"
