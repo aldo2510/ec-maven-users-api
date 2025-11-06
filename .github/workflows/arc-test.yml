@@ -1,10 +1,11 @@
-name: Actions Runner Controller Demo
-on:
+name: Test ARC Autopilot
+on: 
   workflow_dispatch:
 
 jobs:
-  Explore-GitHub-Actions:
-    # You need to use the INSTALLATION_NAME from the previous step
-    runs-on: arc-runner-set
+  demo:
+    runs-on: arcautopilot
+    container: debian:stable-slim
     steps:
-    - run: echo "🎉 This job uses runner scale set runners!"
+      - run: echo "ARC Autopilot corriendo en GKE Autopilot con token"
+
