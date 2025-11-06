@@ -1,14 +1,18 @@
 name: Test ARC Autopilot
-on:
-  workflow_dispatch:
+on: { workflow_dispatch: {} }
 
 jobs:
   demo:
     runs-on: arcautopilot
-#    container: ghcr.io/chainguard-images/busybox:latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+      resources:
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
     steps:
-      - name: Hello
+      - name: Hello from GKE Autopilot
         run: |
-          echo "✅ ARC Autopilot en GKE listo"
+          echo "✅ ARC Autopilot ejecutando en GKE"
+          echo "Runner: $RUNNER_NAME"
           uname -a
-          echo "Repo: $GITHUB_REPOSITORY"
