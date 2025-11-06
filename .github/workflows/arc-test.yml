@@ -1,11 +1,15 @@
 name: Test ARC Autopilot
-on: 
+on:
   workflow_dispatch:
 
 jobs:
   demo:
     runs-on: arcautopilot
-    container: debian:stable-slim
     steps:
-      - run: echo "ARC Autopilot corriendo en GKE Autopilot con token"
+      - name: Chequear entorno
+        run: |
+          echo "ARC Autopilot corriendo en GKE Autopilot"
+          uname -a
+          df -h
+          echo "GitHub repo: $GITHUB_REPOSITORY"
 
