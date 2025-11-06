@@ -1,14 +1,10 @@
-name: Test ARC Autopilot
-on: { workflow_dispatch: {} }
+name: Actions Runner Controller Demo
+on:
+  workflow_dispatch:
 
 jobs:
-  demo:
-    runs-on: arcautopilot
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-latest
+  Explore-GitHub-Actions:
+    # You need to use the INSTALLATION_NAME from the previous step
+    runs-on: arc-runner-set
     steps:
-      - name: Hello from ARC Autopilot
-        run: |
-          echo "✅ ARC Autopilot ejecutando en GKE Autopilot"
-          echo "Runner: $RUNNER_NAME"
-          uname -a
+    - run: echo "🎉 This job uses runner scale set runners!"
