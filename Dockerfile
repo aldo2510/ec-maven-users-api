@@ -1,4 +1,4 @@
-FROM openjdk:17-jdk-slim
+FROM eclipse-temurin:17
 
 # Crear usuario/grupo no-root con UID/GID numéricos
 RUN groupadd -g 10001 app && \
@@ -20,4 +20,5 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 #WORKDIR /app
 #COPY target/*.jar app.jar
 #ENTRYPOINT ["java", "-jar", "app.jar"]
+
 
