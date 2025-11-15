@@ -1,0 +1,52 @@
+name: Build Maven
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        java: ['17', '21']
+      fail-fast: false   # permite que otros jobs sigan aunque uno falle
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Java JDK ${{ matrix.java }}
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ matrix.java }}
+
+    - name: Validate POM version (semver x.y.z)
+      id: validate_version
+      run: |
+        VERSION="$(mvn -q -Dexpression=project.version -DforceStdout help:evaluate)"
+        echo "POM version: ${VERSION}"
+
+        if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error title=Invalid version::La versión '${VERSION}' no cumple el formato semver x.y.z"
+          exit 1
+        fi
+        echo "POM_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+    - name: Validate POM version (Action)
+      uses: aldo2510/customized-actions/.github/actions/validate-pom@main
+      with:
+        pom-path: pom.xml
+
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v4.6.2
+      with:
+        name: artifact-${{ matrix.os }}-java${{ matrix.java }}
+        path: target/*.jar
