@@ -1,0 +1,82 @@
+name: Snyk SAST (Snyk Code)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read   # no publicamos a Security, así que no hace falta security-events
+
+jobs:
+  snyk-code:
+    runs-on: ubuntu-latest
+    env:
+      # crea este secreto en: Settings > Secrets and variables > Actions
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Instala el CLI de Snyk
+      - name: Setup Snyk CLI
+        uses: snyk/actions/setup@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      # Ejecuta SAST (NO falla el pipeline)
+      - name: Run Snyk Code (SAST)
+        run: |
+          set -eux
+          snyk --version
+          snyk code test \
+            --sarif-file-output=snyk-code.sarif \
+            --severity-threshold=low || true
+
+      # Resumen legible en el Summary del job
+      - name: Build SAST summary
+        run: |
+          set -eux
+          echo "### Snyk Code (SAST) summary" > snyk-code-summary.md
+          echo "" >> snyk-code-summary.md
+          # Totales por nivel desde SARIF
+          jq -r '
+            def sev(x): (.runs[0].results // [] | map(.level) | map(select(.==x)) | length);
+            "Total findings: \((.runs[0].results // [] | length))",
+            "error: \(sev(\"error\")) | warning: \(sev(\"warning\")) | note: \(sev(\"note\"))"
+          ' snyk-code.sarif >> snyk-code-summary.md || true
+          echo "" >> snyk-code-summary.md
+          echo "#### Top 20 findings" >> snyk-code-summary.md
+          echo "| Level | Rule | Location | Message |" >> snyk-code-summary.md
+          echo "|---|---|---|---|" >> snyk-code-summary.md
+          jq -r '
+            (.runs[0].results // [])
+            | .[:20]
+            | map({
+                lvl: (.level // "-"),
+                rule: (.ruleId // "-"),
+                loc: (
+                  ((.locations[0].physicalLocation.artifactLocation.uri // "-") + ":" +
+                  ((.locations[0].physicalLocation.region.startLine // 0) | tostring))
+                ),
+                msg: (.message.text // "-")
+              })
+            | .[]
+            | "| \(.lvl) | `\(.rule)` | \(.loc) | \(.msg | gsub("\n"; " ")) |"
+          ' snyk-code.sarif >> snyk-code-summary.md || true
+          # Publicar en el Summary del job
+          cat snyk-code-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Artefactos descargables (reporte + resumen)
+      - name: Upload Snyk Code artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-code
+          
+          path: |
+            snyk-code.sarif
+            snyk-code-summary.md
+          if-no-files-found: warn

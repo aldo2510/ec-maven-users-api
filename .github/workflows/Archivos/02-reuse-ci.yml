@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    permissions:
+      contents: read
+      actions: read 
+#    uses: owner/repo/.github/workflows/build-maven.yml@main
+    uses: ./.github/workflows/build-maven.yml
+    with:
+      java-version: '17'
+      mvn-args: 'clean verify'
+      upload-artifact: true
+      artifact-name: 'app'
+      artifact-path: 'target/*.jar'
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}

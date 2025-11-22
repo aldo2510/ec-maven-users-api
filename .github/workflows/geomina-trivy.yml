@@ -1,0 +1,83 @@
+name: Build & Trivy Scan (local only)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: mi-aplicacion-java
+  IMAGE_TAG: latest
+  IMAGE_NAME: mi-aplicacion-java:latest
+
+jobs:
+  build-trivy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java & Maven
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build with Maven (no tests)
+        run: |
+          set -eux
+          mvn -v
+          mvn clean package -DskipTests
+
+      - name: Build Docker image (local only)
+        run: |
+          set -eux
+          docker --version
+          echo "Building $IMAGE_NAME"
+          docker build -t "$IMAGE_NAME" .
+
+      # ---- TRIVY SCAN ----
+      - name: Trivy scan (table)
+        continue-on-error: true
+        run: |
+          set -eux
+          echo "==> Trivy (HIGH/CRITICAL in console)"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+              --scanners vuln \
+              --no-progress \
+              --format table \
+              --severity HIGH,CRITICAL \
+              "$IMAGE_NAME" || true
+
+      - name: Trivy scan (SARIF)
+        continue-on-error: true
+        run: |
+          set -eux
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD":/workspace \
+            aquasec/trivy:latest image \
+              --scanners vuln \
+              --no-progress \
+              --format sarif \
+              -o /workspace/trivy-image.sarif \
+              --severity HIGH,CRITICAL \
+              "$IMAGE_NAME" || true
+          ls -l trivy-image.sarif || true
+
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        
+        with:
+          name: trivy-image-sarif
+          path: trivy-image.sarif
+          if-no-files-found: warn
