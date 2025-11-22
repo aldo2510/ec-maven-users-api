@@ -37,7 +37,7 @@ jobs:
         echo "POM_VERSION=$VERSION" >> "$GITHUB_ENV"
 
     - name: Validate POM version (semver x.y.z)
-      uses: aldo2510/customized-actions/.github/actions/validate-pom@main
+      uses: aldo2510/customized-actions/.github/actions/validate-pom@v1.0.4
       with:
         pom-path: pom.xml
     
