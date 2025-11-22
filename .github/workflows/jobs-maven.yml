@@ -12,7 +12,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: 3.8.5-openjdk-17
+    container: maven:3.8.5-openjdk-17
     steps:
     - uses: actions/checkout@v5
     - name: Validate POM version (semver x.y.z)
