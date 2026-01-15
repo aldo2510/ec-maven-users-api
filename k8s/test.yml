@@ -18,7 +18,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: demo-app
-          image: myregistry.jfrog.io/demo-repo/demo-app:1.0.0
+          image: myregistry.jfrog.io/demo-repo/demo-app:2.5.5
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
