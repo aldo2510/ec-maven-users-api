@@ -21,4 +21,4 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/my-image-name:latest
+        tags: ${{ secrets.DOCKER_USERNAME }}/ec-maven-users-api:latest
