@@ -15,10 +15,12 @@ jobs:
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
-
+    - name: Build image
+      run: docker build ./api/ -t  FerneyArcila/ec-maven-users-api:latest
+      
     - name: Build and push Docker image
       uses: docker/build-push-action@v6
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/ec-maven-users-api:latest
+        tags: ${{ secrets.DOCKER_USERNAME }} /FerneyArcila/ec-maven-users-api:latest
