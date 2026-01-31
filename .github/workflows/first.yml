@@ -13,9 +13,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-#    container: maven:3.8.5-openjdk-17
+    container: maven:3.8.5-openjdk-17
     steps:
     - uses: actions/checkout@v6
+
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
 
   test:
     runs-on: windows-latest
