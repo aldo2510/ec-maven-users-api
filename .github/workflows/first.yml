@@ -3,7 +3,7 @@ name: Fist Maven Pipeline
 
 # eventos que gatillan el workflow
 on:
-#  workflow_dispatch:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
   pull_request:
