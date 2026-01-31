@@ -1,0 +1,24 @@
+# Nombre del workflow
+name: Fist Maven Pipeline
+
+# eventos que gatillan el workflow
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# trabajos
+jobs:
+  build:
+    runs-on: ubuntu-latest
+#    container: maven:3.8.5-openjdk-17
+    steps:
+    - uses: actions/checkout@v6
+
+  test:
+    runs-on: windows-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v6
