@@ -1,0 +1,52 @@
+name: Fist Maven Pipeline
+
+# eventos que gatillan el workflow
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# trabajos
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: maven:3.8.5-openjdk-17
+    steps:
+    - uses: actions/checkout@v5
+    
+    - name: Validate POM version (semver x.y.z)
+      id: validate_version
+      run: |
+        # Obtiene la versión del POM
+        VERSION="$(mvn -q -Dexpression=project.version -DforceStdout help:evaluate)"
+
+        echo "POM version: ${VERSION}"
+
+        # Regex semver simple: x.y.z (solo números)
+        if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error title=Invalid version::La versión '${VERSION}' no cumple el formato semver x.y.z"
+          exit 1
+        fi
+        echo "POM_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+    - name: Validate POM version (semver x.y.z)
+      uses: aldo2510/customized-actions/.github/actions/validate-pom@v1.0.4
+      with:
+        pom-path: pom.xml
+    
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+      
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4.6.2
+      with:
+        name: artifact
+        path: target/*.jar
+
+  test:
+    runs-on: windows-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v5
