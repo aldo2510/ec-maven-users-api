@@ -9,8 +9,8 @@ metadata:
   links:
     - url: https://github.com/aldo2510/ec-maven-users-api
       title: GitHub
-annotations:
-  github.com/project-slug: aldo2510/ec-maven-users-api
+  annotations:
+    github.com/project-slug: aldo2510/ec-maven-users-api
 spec:
   type: service
   lifecycle: production
