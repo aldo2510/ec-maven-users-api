@@ -11,11 +11,11 @@ env:
   IMAGE_NAME:      mi-aplicacion-java
   IMAGE_TAG:       latest
   DOCKERFILE_PATH: Dockerfile
-  ACR_REGISTRY:    laboratorio.azurecr.io
+  ACR_REGISTRY:    cregatceastus01.azurecr.io
   APP_NAME:        myapp
   ACI_NAME:        aci-myapp
   RESOURCE_GROUP:  mod3lab2
-  LOCATION:        eastus
+  LOCATION:        rgatceastus01
   CONTAINER_PORT:  "8080"
 
 jobs:
