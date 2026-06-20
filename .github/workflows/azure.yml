@@ -1,10 +1,10 @@
 name: CI/CD → Azure Container Instances
 
 on:
-#  push:
-#    branches: [ main ]
-#  pull_request:
-#    branches: [ main ]
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 env:
@@ -12,6 +12,11 @@ env:
   IMAGE_TAG:       latest
   DOCKERFILE_PATH: Dockerfile
   ACR_REGISTRY:    cregatceastus01.azurecr.io
+  APP_NAME:        myapp
+  ACI_NAME:        aci-myapp
+  RESOURCE_GROUP:  mod3lab2
+  LOCATION:        rgatceastus01
+  CONTAINER_PORT:  "8080"
 
 jobs:
   # ─────────────────────────────────────────────
@@ -96,8 +101,8 @@ jobs:
       - name: Login en Azure Container Registry
         run: |
           docker login ${{ env.ACR_REGISTRY }} \
-            -u ${{ secrets.DOCKER_CREDS_USR }} \
-            -p ${{ secrets.DOCKER_CREDS_PSW }}
+            -u ${{ secrets.AZ_CLIENT_ID }} \
+            -p ${{ secrets.AZ_CLIENT_SECRET }}
 
       - name: Tag y Push al ACR
         run: |
@@ -110,3 +115,76 @@ jobs:
 
       - name: Logout del registry
         run: docker logout ${{ env.ACR_REGISTRY }}
+
+  # ─────────────────────────────────────────────
+  # Job 4: Deploy a Azure Container Instances
+  # Solo en rama main
+  # ─────────────────────────────────────────────
+  deploy-aci:
+    name: Deploy → Azure Container Instances
+    runs-on: ubuntu-latest
+    needs: publish-image
+    if: github.ref == 'refs/heads/main'
+    container:
+      image: mcr.microsoft.com/azure-cli
+
+    env:
+      IMAGE_REF: ${{ vars.ACR_REGISTRY || 'laboratorio.azurecr.io' }}/mi-aplicacion-java:${{ github.run_number }}
+
+    steps:
+      - name: Azure Login con Service Principal
+        run: |
+          az login --service-principal \
+            --username="${{ secrets.AZ_CLIENT_ID }}" \
+            --password="${{ secrets.AZ_CLIENT_SECRET }}" \
+            --tenant="${{ secrets.AZ_TENANT_ID }}"
+          az account set --subscription "${{ secrets.AZ_SUBSCRIPTION_ID }}"
+
+      - name: Crear Resource Group (idempotente)
+        run: |
+          az group create \
+            -n "${{ env.RESOURCE_GROUP }}" \
+            -l "${{ env.LOCATION }}"
+
+      - name: Eliminar ACI existente si existe
+        run: |
+          if az container show \
+               -g "${{ env.RESOURCE_GROUP }}" \
+               -n "${{ env.ACI_NAME }}" \
+               >/dev/null 2>&1; then
+            az container delete \
+              -g "${{ env.RESOURCE_GROUP }}" \
+              -n "${{ env.ACI_NAME }}" -y
+          fi
+
+      - name: Deploy a Azure Container Instances
+        run: |
+          DNS_LABEL=$(echo "aci-${{ env.APP_NAME }}-${{ github.run_number }}" \
+            | tr '[:upper:]' '[:lower:]')
+
+          az container create \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name            "${{ env.ACI_NAME }}" \
+            --image           "${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.run_number }}" \
+            --registry-login-server "${{ env.ACR_REGISTRY }}" \
+            --registry-username     "${{ secrets.AZ_CLIENT_ID }}" \
+            --registry-password     "${{ secrets.AZ_CLIENT_SECRET }}" \
+            --cpu 1 --memory 1.5 \
+            --restart-policy Always \
+            --ip-address Public \
+            --ports          "${{ env.CONTAINER_PORT }}" \
+            --dns-name-label "$DNS_LABEL" \
+            --os-type        Linux
+
+      - name: Mostrar URL del contenedor
+        run: |
+          FQDN=$(az container show \
+            -g "${{ env.RESOURCE_GROUP }}" \
+            -n "${{ env.ACI_NAME }}" \
+            --query "ipAddress.fqdn" -o tsv)
+          echo "✅ ACI URL: http://${FQDN}:${{ env.CONTAINER_PORT }}"
+          echo "ACI_URL=http://${FQDN}:${{ env.CONTAINER_PORT }}" >> $GITHUB_ENV
+
+      - name: Azure Logout
+        if: always()
+        run: az logout
