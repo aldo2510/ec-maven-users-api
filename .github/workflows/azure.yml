@@ -15,7 +15,7 @@ env:
   APP_NAME:        myapp
   ACI_NAME:        aci-myapp
   RESOURCE_GROUP:  mod3lab2
-  LOCATION:        rgatceastus01
+  LOCATION:        eastus
   CONTAINER_PORT:  "8080"
 
 jobs:
