@@ -161,3 +161,21 @@ jobs:
       - name: Azure Logout
         if: always()
         run: az logout
+
+
+# # 1. Crear el clúster AKS en el RG existente
+# az aks create \
+#   --resource-group mod3lab2 \
+#   --name aks-lab \
+#   --node-count 1 \
+#   --node-vm-size Standard_D2s_v3 \
+#   --enable-managed-identity \
+#   --generate-ssh-keys \
+#   --kubernetes-version 1.34.8 \
+#   --network-plugin kubenet
+
+# # 2. Vincular el AKS con el ACR para que pueda descargar las imágenes
+# az aks update \
+#   --resource-group mod3lab2 \
+#   --name aks-lab \
+#   --attach-acr cregatceastus01
