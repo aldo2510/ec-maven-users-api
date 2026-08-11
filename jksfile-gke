@@ -20,7 +20,7 @@ pipeline {
   stages {
 
     stage('Build con Maven') {
-      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-21' } }
       steps {
         sh '''
           set -eux
@@ -92,38 +92,8 @@ pipeline {
     
           # Dependencias mínimas
           apt-get update
-          apt-get install -y gettext-base google-cloud-sdk-gke-gcloud-auth-plugin curl ca-certificates
-    
-          # kubectl (binario oficial)
-          if ! command -v kubectl >/dev/null 2>&1; then
-            KVER="$(curl -sL https://dl.k8s.io/release/stable.txt)"
-            curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl"
-            chmod +x /usr/local/bin/kubectl
-          fi
-    
-          export USE_GKE_GCLOUD_AUTH_PLUGIN=True
-    
-          # Auth y kubeconfig
-          gcloud auth activate-service-account --key-file="${GCLOUD_CREDS}"
-          gcloud config set project "${PROJECT_ID}"
-          gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}"
-    
-          # Apply con sustitución
-          envsubst < k8s/namespace.yaml | kubectl apply -f -
-          envsubst < k8s/deployment.yaml | kubectl apply -f -
-          envsubst < k8s/service.yaml    | kubectl apply -f -
-          
-          cat k8s/deployment.yaml
-          cat k8s/service.yaml
-
-          kubectl -n "${K8S_NAMESPACE}" rollout restart deploy/${APP_NAME}
-          kubectl -n "${K8S_NAMESPACE}" rollout status  deploy/${APP_NAME} --timeout=10m
-
-          kubectl -n "${K8S_NAMESPACE}" get deploy,po,svc -o wide
-        '''
+'''
       }
     }
-
-
   }
 }

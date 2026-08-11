@@ -12,7 +12,7 @@ pipeline {
         stage('Compilar con Maven') {
             agent {
                 docker { 
-                    image 'maven:3.8.4-openjdk-17-slim'
+                    image 'maven:3.9.6-eclipse-temurin-21'
                     args '-u root' 
                 }
             }
@@ -24,7 +24,7 @@ pipeline {
         stage('Análisis SonarQube') {
             agent {
                 docker { 
-                    image 'maven:3.8.4-openjdk-17-slim'
+                    image 'maven:3.9.6-eclipse-temurin-21'
                     args '-u root' 
                 }
             }

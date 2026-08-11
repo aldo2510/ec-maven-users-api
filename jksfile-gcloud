@@ -7,13 +7,13 @@ pipeline {
     REGION       = 'us-central1'
     REPO         = 'cloud-jenkins-registry'
     REGISTRY     = "${REGION}-docker.pkg.dev"
-    GCLOUD_CREDS = credentials('gcloud-creds') // Secret file (ruta al JSON)
+    GCLOUD_CREDS = credentials('gcloud-creds') // JSON SA
     IMAGE_NAME   = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${APP_NAME}:latest"
   }
 
   stages {
     stage('Build con Maven') {
-      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-21' } }
       steps {
         sh '''
           set -eux

@@ -13,7 +13,7 @@
     <description>Proyecto de ejemplo con Spring Boot y pruebas unitarias</description>
 
     <properties>
-        <java.version>17</java.version>
+        <java.version>21</java.version>
         <spring.boot.version>2.7.10</spring.boot.version>
         <junit.jupiter.version>5.7.2</junit.jupiter.version>
     </properties>
@@ -68,20 +68,19 @@
                 <executions>
                     <execution>
                         <goals>
-                            <goal>repackage</goal> <!-- Repackage goal to make the JAR executable -->
+                            <goal>repackage</goal>
                         </goals>
                     </execution>
                 </executions>
             </plugin>
 
-            <!-- Maven Compiler Plugin: Set Java version -->
+            <!-- Maven Compiler Plugin: Set Java version (use release for better cross-compatibility) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
+                <version>3.10.1</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>21</release>
                 </configuration>
             </plugin>
 
@@ -100,4 +99,3 @@
     </build>
 
 </project>
-

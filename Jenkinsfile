@@ -28,7 +28,7 @@ pipeline {
   stages {
 
     stage('Compilar con Maven') {
-      agent { docker { image 'maven:3.8.4-openjdk-17-slim' } }
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-21' } }
       steps {
         sh 'mvn -B -DskipTests clean package'
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
@@ -86,45 +86,8 @@ pipeline {
             --username="${AZ_CLIENT_ID}" \
             --password="${AZ_CLIENT_SECRET}" \
             --tenant="${AZ_TENANT_ID}"
-          az account set --subscription "${AZ_SUBSCRIPTION_ID}"
-    
-          # RG idempotente
-          az group create -n "${RESOURCE_GROUP}" -l "${LOCATION}"
-    
-          # Borrar si ya existe (ACI no actualiza in-place)
-          if az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" >/dev/null 2>&1; then
-            az container delete -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" -y
-          fi
-    
-          # Etiqueta DNS pública (minúsculas)
-          DNS_LABEL=$(echo "aci-${APP_NAME}-${BUILD_NUMBER}" | tr '[:upper:]' '[:lower:]')
-    
-          az container create \
-            --resource-group "${RESOURCE_GROUP}" \
-            --name "${ACI_NAME}" \
-            --image "${IMAGE_REF}" \
-            --registry-login-server "${ACR_REGISTRY}" \
-            --registry-username "${DOCKER_CREDS_USR}" \
-            --registry-password "${DOCKER_CREDS_PSW}" \
-            --cpu 1 --memory 1.5 \
-            --restart-policy Always \
-            --ip-address Public \
-            --ports ${CONTAINER_PORT} \
-            --dns-name-label "${DNS_LABEL}" \
-            --os-type Linux                 # <<< clave para evitar osType=null
-    
-          FQDN=$(az container show -g "${RESOURCE_GROUP}" -n "${ACI_NAME}" --query "ipAddress.fqdn" -o tsv)
-          echo "ACI URL: http://${FQDN}:${CONTAINER_PORT}"
-        '''
+'''
       }
     }
-
-
-
-  }
-
-  post {
-    success { echo 'OK: build, push y deploy a Azure Container Instances.' }
-    failure { echo 'ERROR en el pipeline.' }
   }
 }

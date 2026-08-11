@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jdk-alpine-3.23
+FROM eclipse-temurin:21-jdk-alpine
 
 # Crear usuario/grupo no-root con UID/GID numéricos (Alpine)
 RUN addgroup -g 10001 -S app && \
