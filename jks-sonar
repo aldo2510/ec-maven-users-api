@@ -1,58 +1,88 @@
 pipeline {
     agent any
-    
+
     environment {
-        SONAR_SERVER = 'sonar-server'
-        // EXTRAEMOS DINÁMICAMENTE EL NOMBRE DEL REPO
-        // Esto evita que tengas que cambiar el nombre manualmente en cada proyecto
+        SONAR_SERVER = 'sonarqube-server'
         REPO_NAME = "${env.GIT_URL.split('/').last().split('\\.').first()}"
     }
 
     stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+
+                echo "Repositorio: ${env.REPO_NAME}"
+                echo "Branch: ${env.BRANCH_NAME ?: 'N/A'}"
+            }
+        }
+
         stage('Compilar con Maven') {
             agent {
-                docker { 
+                docker {
                     image 'maven:3.8.4-openjdk-17-slim'
-                    args '-u root' 
+                    args '-u root'
                 }
             }
+
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh '''
+                    mvn clean package -DskipTests
+                '''
             }
         }
 
         stage('Análisis SonarQube') {
             agent {
-                docker { 
+                docker {
                     image 'maven:3.8.4-openjdk-17-slim'
-                    args '-u root' 
+                    args '-u root'
                 }
             }
+
             steps {
-                withSonarQubeEnv("${env.SONAR_SERVER}") {
+                withSonarQubeEnv("${SONAR_SERVER}") {
+
                     sh """
-                        mvn sonar:sonar \
-                        -Dsonar.projectKey=${env.REPO_NAME} \
-                        -Dsonar.projectName=${env.REPO_NAME} \
-                        -Dsonar.sources=src/main/java \
-                        -Dsonar.java.binaries=target/classes \
-                        -Dsonar.qualitygate.wait=true
+                        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                            -Dsonar.projectKey=${REPO_NAME} \
+                            -Dsonar.projectName=${REPO_NAME} \
+                            -Dsonar.sources=src/main/java \
+                            -Dsonar.java.binaries=target/classes
                     """
                 }
             }
         }
 
-        stage("Quality Gate") {
+        stage('Quality Gate') {
             steps {
-                // El pipeline se detiene automáticamente si no pasa los estándares del Banco
-                waitForQualityGate abortPipeline: true
+
+                timeout(time: 5, unit: 'MINUTES') {
+
+                    waitForQualityGate abortPipeline: true
+                }
             }
         }
     }
-    
+
     post {
+
+        success {
+            echo '======================================'
+            echo ' PIPELINE FINALIZADO CORRECTAMENTE'
+            echo ' SonarQube Quality Gate: PASSED'
+            echo '======================================'
+        }
+
         failure {
-            echo "El análisis de SonarQube falló o el Quality Gate no se cumplió."
+            echo '======================================'
+            echo ' PIPELINE FALLÓ'
+            echo ' Revisar compilación, SonarQube o Quality Gate'
+            echo '======================================'
+        }
+
+        always {
+            echo "Repositorio analizado: ${REPO_NAME}"
         }
     }
 }
