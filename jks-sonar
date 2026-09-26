@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     environment {
-        SONAR_SERVER = 'sonarqube-server'
+        SONAR_SERVER = 'sonar-server'
         // EXTRAEMOS DINÁMICAMENTE EL NOMBRE DEL REPO
         // Esto evita que tengas que cambiar el nombre manualmente en cada proyecto
         REPO_NAME = "${env.GIT_URL.split('/').last().split('\\.').first()}"
