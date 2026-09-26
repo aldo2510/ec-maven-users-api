@@ -3,7 +3,7 @@ pipeline {
     stages {
         stage('Compilar con Maven') {
             agent {
-                docker { image 'maven:3.8.4-openjdk-17-slim' }
+                docker { image 'maven:3.9.3-eclipse-temurin-17' }
             }
             steps {
                 sh 'mvn clean package'
