@@ -2,14 +2,6 @@ pipeline {
     agent any
     parameters {
         string(name: 'PERSON', defaultValue: 'Mr Jenkins', description: 'Who should I say hello to?')
-
-        text(name: 'BIOGRAPHY', defaultValue: '', description: 'Enter some information about the person')
-
-        booleanParam(name: 'TOGGLE', defaultValue: true, description: 'Toggle this value')
-
-        choice(name: 'CHOICE', choices: ['One', 'Two', 'Three'], description: 'Pick something')
-
-        password(name: 'PASSWORD', defaultValue: 'SECRET', description: 'Enter a password')
     }
     stages {
         stage('Compilar con Maven') {
@@ -17,6 +9,7 @@ pipeline {
                 docker { image 'maven:3.9.3-eclipse-temurin-17' }
             }
             steps {
+                echo "Hello ${params.PERSON}"
                 sh 'mvn clean package'
                 archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
             }
