@@ -72,26 +72,7 @@ pipeline {
       }
 
       steps {
-        script {
-          try {
-            copyArtifacts(
-              projectName: env.JOB_NAME,
-              selector: [
-                $class: 'SpecificBuildSelector',
-                buildNumber: "${env.BUILD_NUMBER}"
-              ],
-              filter: 'target/*.jar',
-              fingerprintArtifacts: true,
-              flatten: true,
-              target: 'target'
-            )
-
-            echo 'copyArtifacts OK'
-          } catch (err) {
-            echo "copyArtifacts no disponible (${err}); usando fallback unstash"
-            unstash 'app-jar'
-          }
-        }
+        unstash 'app-jar'
 
         sh '''
           set -eux
