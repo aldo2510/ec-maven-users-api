@@ -72,35 +72,27 @@ pipeline {
       }
 
       steps {
-        script {
-          try {
-            copyArtifacts(
-              projectName: env.JOB_NAME,
-              selector: [
-                $class: 'SpecificBuildSelector',
-                buildNumber: "${env.BUILD_NUMBER}"
-              ],
-              filter: 'target/*.jar',
-              fingerprintArtifacts: true,
-              flatten: true,
-              target: 'target'
-            )
-
-            echo 'copyArtifacts OK'
-          } catch (err) {
-            echo "copyArtifacts no disponible (${err}); usando fallback unstash"
-            unstash 'app-jar'
-          }
-        }
+        unstash 'app-jar'
 
         sh '''
           set -eux
 
-          apk add --no-cache aws-cli
-          aws --version
           export AWS_DEFAULT_REGION="$AWS_REGION"
+          AWS_CLI_IMAGE="amazon/aws-cli:2"
 
-          ACCOUNT_ID=$(aws sts get-caller-identity \
+          aws_cli() {
+            docker run --rm \
+              -e AWS_ACCESS_KEY_ID \
+              -e AWS_SECRET_ACCESS_KEY \
+              -e AWS_SESSION_TOKEN \
+              -e AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
+              "$AWS_CLI_IMAGE" "$@"
+          }
+
+          docker --version
+          aws_cli --version
+
+          ACCOUNT_ID=$(aws_cli sts get-caller-identity \
             --query Account \
             --output text)
 
@@ -111,17 +103,17 @@ pipeline {
           echo "ECR Registry: $ECR_REGISTRY"
           echo "Imagen: $IMAGE"
 
-          if ! aws ecr describe-repositories \
+          if ! aws_cli ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY" \
             >/dev/null 2>&1; then
 
             echo "Repositorio ECR no existe. Creándolo..."
 
-            aws ecr create-repository \
+            aws_cli ecr create-repository \
               --repository-name "$ECR_REPOSITORY"
           fi
 
-          aws ecr get-login-password \
+          aws_cli ecr get-login-password \
             --region "$AWS_REGION" |
             docker login \
               --username AWS \
@@ -161,6 +153,8 @@ pipeline {
           set -eux
 
           export AWS_DEFAULT_REGION="$AWS_REGION"
+
+          aws --version
 
           ACCOUNT_ID=$(aws sts get-caller-identity \
             --query Account \
