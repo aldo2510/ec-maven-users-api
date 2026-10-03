@@ -100,7 +100,9 @@ pipeline {
           aws --version
           export AWS_DEFAULT_REGION="$AWS_REGION"
 
-          ACCOUNT_ID=$(aws sts get-caller-identity             --query Account             --output text)
+          ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
 
           ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
           IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_NUMBER"
@@ -109,13 +111,19 @@ pipeline {
           echo "ECR Registry: $ECR_REGISTRY"
           echo "Imagen: $IMAGE"
 
-          if ! aws ecr describe-repositories             --repository-names "$ECR_REPOSITORY"             >/dev/null 2>&1; then
+          if ! aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            >/dev/null 2>&1; then
             echo "Repositorio ECR no existe. Creándolo..."
-            aws ecr create-repository               --repository-name "$ECR_REPOSITORY"
+            aws ecr create-repository \
+              --repository-name "$ECR_REPOSITORY"
           fi
 
-          aws ecr get-login-password             --region "$AWS_REGION" |
-            docker login               --username AWS               --password-stdin "$ECR_REGISTRY"
+          aws ecr get-login-password \
+            --region "$AWS_REGION" | \
+            docker login \
+              --username AWS \
+              --password-stdin "$ECR_REGISTRY"
 
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
@@ -152,7 +160,9 @@ pipeline {
 
           export AWS_DEFAULT_REGION="$AWS_REGION"
 
-          ACCOUNT_ID=$(aws sts get-caller-identity             --query Account             --output text)
+          ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
 
           ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
           IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_NUMBER"
@@ -170,17 +180,33 @@ pipeline {
             echo "Creando servicio: $APP_NAME"
 
             SERVICE_ARN=$(
-              aws ecs create-express-gateway-service                 --cluster default                 --service-name "$APP_NAME"                 --primary-container "image=$IMAGE,containerPort=8080"                 --execution-role-arn "$ECS_EXECUTION_ROLE_ARN"                 --infrastructure-role-arn "$ECS_INFRASTRUCTURE_ROLE_ARN"                 --health-check-path "/users"                 --cpu 0.5                 --memory 1024                 --query 'service.serviceArn'                 --output text
+              aws ecs create-express-gateway-service \
+                --cluster default \
+                --service-name "$APP_NAME" \
+                --primary-container "image=$IMAGE,containerPort=8080" \
+                --execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
+                --infrastructure-role-arn "$ECS_INFRASTRUCTURE_ROLE_ARN" \
+                --health-check-path "/users" \
+                --cpu 0.5 \
+                --memory 1024 \
+                --query 'service.serviceArn' \
+                --output text
             )
 
             echo "Servicio creado: $SERVICE_ARN"
 
-            aws ecs monitor-express-gateway-service               --service-arn "$SERVICE_ARN"               --monitor-mode TEXT-ONLY
+            aws ecs monitor-express-gateway-service \
+              --service-arn "$SERVICE_ARN" \
+              --monitor-mode TEXT-ONLY
           else
             echo "Servicio existente: $SERVICE_ARN"
             echo "Actualizando imagen..."
 
-            aws ecs update-express-gateway-service               --service-arn "$SERVICE_ARN"               --primary-container "image=$IMAGE,containerPort=8080"               --monitor-resources DEPLOYMENT               --monitor-mode TEXT-ONLY
+            aws ecs update-express-gateway-service \
+              --service-arn "$SERVICE_ARN" \
+              --primary-container "image=$IMAGE,containerPort=8080" \
+              --monitor-resources DEPLOYMENT \
+              --monitor-mode TEXT-ONLY
 
             echo "Servicio actualizado correctamente."
           fi
