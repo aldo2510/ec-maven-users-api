@@ -131,7 +131,43 @@ aws iam attach-role-policy \
   --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices
 ```
 
-### 3.3 Verificar los roles
+### 3.3 Permisos adicionales para entorno de demo
+
+Para este laboratorio/demo se puede simplificar el troubleshooting otorgando temporalmente `AdministratorAccess` al infrastructure role:
+
+```bash
+aws iam attach-role-policy \
+  --role-name ecsInfrastructureRoleForExpressServices \
+  --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+```
+
+Verificar:
+
+```bash
+aws iam list-attached-role-policies \
+  --role-name ecsInfrastructureRoleForExpressServices
+```
+
+Deberían aparecer:
+
+```text
+AmazonECSInfrastructureRoleforExpressGatewayServices
+AdministratorAccess
+```
+
+Esto permite que ECS Express Mode pueda aprovisionar sin bloqueos de permisos los recursos administrados durante la demo, como load balancers, target groups, security groups, certificados y auto scaling. AWS documenta que el infrastructure role es el encargado de gestionar estos recursos y permite adjuntar permisos adicionales a la política administrada. citeturn0search0turn0search2
+
+> **Importante:** `AdministratorAccess` otorga acceso completo a AWS. Utilizarlo únicamente para este entorno de demo/laboratorio. Para producción, retirar esta política y utilizar la política administrada `AmazonECSInfrastructureRoleforExpressGatewayServices` o una política equivalente de mínimo privilegio. citeturn0search10
+
+Para retirar posteriormente el permiso de demo:
+
+```bash
+aws iam detach-role-policy \
+  --role-name ecsInfrastructureRoleForExpressServices \
+  --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+```
+
+### 3.4 Verificar los roles
 
 ```bash
 aws iam get-role --role-name ecsTaskExecutionRole
@@ -343,9 +379,10 @@ Una sola vez:
 ```text
 1. Crear las dos credenciales AWS en Jenkins.
 2. Crear los dos roles IAM siguiendo los scripts de este README.
-3. Configurar Account ID y región en jksfile-aws.
-4. Si se utiliza el archivo aws, revisar también los ARN de los roles en ese archivo.
-5. Verificar que el endpoint /users responda correctamente para el health check.
+3. Para la demo, adjuntar AdministratorAccess al infrastructure role si se desea evitar bloqueos de permisos.
+4. Configurar Account ID y región en jksfile-aws.
+5. Si se utiliza el archivo aws, revisar también los ARN de los roles en ese archivo.
+6. Verificar que el endpoint /users responda correctamente para el health check.
 ```
 
 No es necesario crear manualmente:
@@ -358,27 +395,30 @@ No es necesario crear manualmente:
 
 Express Mode puede crear y administrar componentes como Application Load Balancer, target groups, security groups y políticas de auto scaling. citeturn0search0turn0search5
 
-Después:
+## 14. Tiempo de aprovisionamiento
 
-```text
-git push
-   |
-   v
-Jenkins
-   |
-   +--> Maven
-   +--> Docker
-   +--> ECR :BUILD_NUMBER
-   +--> Create / Update ECS Express Mode
-   |
-   v
-Fargate
-   |
-   v
-Spring Boot API
+El primer deployment puede tardar varios minutos porque Express Mode está creando y configurando múltiples recursos de AWS.
+
+El tiempo no es fijo: depende de los recursos que deban aprovisionarse. AWS indica que `monitor-express-gateway-service` puede monitorizar el proceso y que su timeout predeterminado es de **30 minutos**. citeturn0search1turn0search4
+
+Como referencia para esta demo, si después de aproximadamente **10-15 minutos** el deployment continúa en `PROVISIONING` o `IN_PROGRESS`, conviene revisar el estado del servicio antes de volver a ejecutar Jenkins.
+
+Comando para consultar el estado:
+
+```bash
+aws ecs describe-express-gateway-service \
+  --service-arn arn:aws:ecs:us-east-2:<AWS_ACCOUNT_ID>:service/default/mi-application
 ```
 
-## 14. Comparación multi-cloud
+Cuando el servicio llegue a:
+
+```text
+ACTIVE
+```
+
+la aplicación estará lista para recibir tráfico. citeturn0search1
+
+## 15. Comparación multi-cloud
 
 ```text
 Azure: Jenkins -> ACR -> Azure Container Instances
@@ -388,7 +428,7 @@ AWS:   Jenkins -> ECR -> ECS Express Mode -> Fargate
 
 El patrón común es construir una imagen Docker, almacenarla en el registry del cloud y desplegarla en un runtime administrado.
 
-## 15. Resultado
+## 16. Resultado
 
 El pipeline AWS queda preparado para realizar el bootstrap del entorno y después actualizar automáticamente cada nueva versión:
 
