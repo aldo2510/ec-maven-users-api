@@ -193,7 +193,7 @@ aws iam list-attached-role-policies \
 
 ## 4. Configurar Account ID y región
 
-En `jksfile-aws` y, si se utiliza, en `aws`, configurar la región y los ARN de los roles:
+En `jksfile-aws` configurar la región y los ARN de los roles:
 
 ```groovy
 AWS_REGION = 'us-east-2'
@@ -201,7 +201,7 @@ ECS_EXECUTION_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRol
 ECS_INFRASTRUCTURE_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsInfrastructureRoleForExpressServices'
 ```
 
-En el archivo `aws` del repositorio, los ARN deben corresponder a la cuenta AWS donde se desplegará la aplicación.
+Los ARN de `jksfile-aws` deben corresponder a la cuenta AWS donde se desplegará la aplicación.
 
 El Account ID puede obtenerse con:
 
