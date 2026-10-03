@@ -237,7 +237,7 @@ pipeline {
 
             aws ecs monitor-express-gateway-service \
               --service-arn "$SERVICE_ARN" \
-              --monitor-mode TEXT-ONLY
+              --mode TEXT-ONLY
           else
             echo "Servicio existente: $SERVICE_ARN"
             echo "Actualizando imagen..."
@@ -246,7 +246,7 @@ pipeline {
               --service-arn "$SERVICE_ARN" \
               --primary-container "image=$IMAGE,containerPort=8080" \
               --monitor-resources DEPLOYMENT \
-              --monitor-mode TEXT-ONLY
+              --mode TEXT-ONLY
 
             echo "Servicio actualizado correctamente."
           fi
