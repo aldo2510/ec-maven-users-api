@@ -36,28 +36,115 @@ aws-secret-access-key
 
 Para producción se recomienda utilizar credenciales temporales, IAM Roles u OIDC cuando sea posible.
 
-## 3. Roles IAM de ECS Express Mode
+## 3. Crear los roles IAM
 
-Crear una sola vez los roles que utilizará ECS Express Mode:
+Para el despliegue mediante AWS CLI, los roles deben existir antes de ejecutar `create-express-gateway-service`.
+
+Se crearán una sola vez:
 
 ```text
 ecsTaskExecutionRole
 ecsInfrastructureRoleForExpressServices
 ```
 
-El execution role debe tener la política administrada:
+### 3.1 Crear ecsTaskExecutionRole
 
-```text
-AmazonECSTaskExecutionRolePolicy
+Crear el trust policy:
+
+```bash
+cat > ecs-task-execution-trust-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
 ```
 
-El infrastructure role debe tener la política administrada correspondiente a Express Mode:
+Crear el role:
 
-```text
-AmazonECSInfrastructureRoleforExpressGatewayServices
+```bash
+aws iam create-role \
+  --role-name ecsTaskExecutionRole \
+  --assume-role-policy-document file://ecs-task-execution-trust-policy.json
 ```
 
-El pipeline referencia estos roles en `jksfile-aws` mediante sus ARNs.
+Asignar la política administrada:
+
+```bash
+aws iam attach-role-policy \
+  --role-name ecsTaskExecutionRole \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+```
+
+### 3.2 Crear ecsInfrastructureRoleForExpressServices
+
+Crear el trust policy:
+
+```bash
+cat > ecs-express-infrastructure-trust-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAccessInfrastructureForECSExpressServices",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+```
+
+Crear el role:
+
+```bash
+aws iam create-role \
+  --role-name ecsInfrastructureRoleForExpressServices \
+  --assume-role-policy-document file://ecs-express-infrastructure-trust-policy.json
+```
+
+Asignar la política de Express Mode:
+
+```bash
+aws iam attach-role-policy \
+  --role-name ecsInfrastructureRoleForExpressServices \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices
+```
+
+### 3.3 Verificar los roles
+
+```bash
+aws iam get-role --role-name ecsTaskExecutionRole
+```
+
+```bash
+aws iam get-role --role-name ecsInfrastructureRoleForExpressServices
+```
+
+Verificar las políticas:
+
+```bash
+aws iam list-attached-role-policies \
+  --role-name ecsTaskExecutionRole
+```
+
+```bash
+aws iam list-attached-role-policies \
+  --role-name ecsInfrastructureRoleForExpressServices
+```
+
+> Estos roles se crean manualmente una sola vez. Jenkins no necesita permisos para crear o modificar roles IAM.
 
 ## 4. Configurar Account ID y región
 
@@ -224,8 +311,8 @@ Una sola vez:
 
 ```text
 1. Crear credenciales AWS en Jenkins.
-2. Crear los roles IAM de Express Mode.
-3. Configurar Account ID y región.
+2. Crear los dos roles IAM siguiendo los scripts de este README.
+3. Configurar Account ID y región en jksfile-aws.
 ```
 
 Después:
