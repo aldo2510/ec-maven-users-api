@@ -208,6 +208,18 @@ pipeline {
           echo "Imagen a desplegar: $IMAGE"
           echo "Servicio ECS Express Mode: $APP_NAME"
 
+          if ! aws ecs describe-clusters \
+            --clusters default \
+            --query 'clusters[0].clusterArn' \
+            --output text >/dev/null 2>&1; then
+
+            echo "Cluster ECS default no existe. Creándolo para Express Mode..."
+
+            aws ecs create-cluster \
+              --cluster-name default \
+              >/dev/null
+          fi
+
           SERVICE_ARN=$(
             aws ecs list-services \
               --cluster default \
@@ -228,7 +240,7 @@ pipeline {
                 --execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
                 --infrastructure-role-arn "$ECS_INFRASTRUCTURE_ROLE_ARN" \
                 --health-check-path "/users" \
-                --cpu 0.5 \
+                --cpu 512 \
                 --memory 1024 \
                 --query 'service.serviceArn' \
                 --output text
