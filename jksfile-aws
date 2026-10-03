@@ -208,23 +208,11 @@ pipeline {
           echo "Imagen a desplegar: $IMAGE"
           echo "Servicio ECS Express Mode: $APP_NAME"
 
-          if ! aws ecs describe-clusters \
-            --clusters default \
-            --query 'clusters[0].clusterArn' \
-            --output text >/dev/null 2>&1; then
-
-            echo "Cluster ECS default no existe. Creándolo para Express Mode..."
-
-            aws ecs create-cluster \
-              --cluster-name default \
-              >/dev/null
-          fi
-
           SERVICE_ARN=$(
             aws ecs list-services \
               --cluster default \
               --query "serviceArns[?contains(@, '/$APP_NAME')]" \
-              --output text |
+              --output text 2>/dev/null |
             awk '{print $1}'
           )
 
@@ -234,7 +222,6 @@ pipeline {
 
             SERVICE_ARN=$(
               aws ecs create-express-gateway-service \
-                --cluster default \
                 --service-name "$APP_NAME" \
                 --primary-container "image=$IMAGE,containerPort=8080" \
                 --execution-role-arn "$ECS_EXECUTION_ROLE_ARN" \
