@@ -71,43 +71,12 @@ pipeline {
         sh '''
           set -eux
 
-          export AWS_DEFAULT_REGION="$AWS_REGION"
-          AWS_CLI_IMAGE="public.ecr.aws/aws-cli/aws-cli:2.37.5"
-
-          aws_cli() {
-            docker run --rm \
-              -e AWS_ACCESS_KEY_ID \
-              -e AWS_SECRET_ACCESS_KEY \
-              -e AWS_SESSION_TOKEN \
-              -e AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
-              "$AWS_CLI_IMAGE" "$@"
-          }
+          apk add --no-cache aws-cli
 
           docker --version
-          aws_cli --version
+          aws --version
 
-          AWS_ACCESS_KEY_ID=$(printf '%s' "$AWS_ACCESS_KEY_ID" | tr -d '\r\n')
-          AWS_SECRET_ACCESS_KEY=$(printf '%s' "$AWS_SECRET_ACCESS_KEY" | tr -d '\r\n')
-
-          case "$AWS_ACCESS_KEY_ID" in
-            AKIA*|ASIA*)
-              ;;
-            *)
-              echo "ERROR: AWS_ACCESS_KEY_ID no tiene un formato válido."
-              echo "Verifica que aws-access-key-id contenga la Access Key ID y no la Secret Access Key."
-              exit 1
-              ;;
-          esac
-
-          case "$AWS_SECRET_ACCESS_KEY" in
-            AKIA*|ASIA*)
-              echo "ERROR: aws-secret-access-key parece contener una Access Key ID."
-              echo "Las credenciales de AWS están invertidas."
-              exit 1
-              ;;
-          esac
-
-          ACCOUNT_ID=$(aws_cli sts get-caller-identity \
+          ACCOUNT_ID=$(aws sts get-caller-identity \
             --query Account \
             --output text)
 
@@ -118,17 +87,7 @@ pipeline {
           echo "ECR Registry: $ECR_REGISTRY"
           echo "Imagen: $IMAGE"
 
-          if ! aws_cli ecr describe-repositories \
-            --repository-names "$ECR_REPOSITORY" \
-            >/dev/null 2>&1; then
-
-            echo "Repositorio ECR no existe. Creándolo..."
-
-            aws_cli ecr create-repository \
-              --repository-name "$ECR_REPOSITORY"
-          fi
-
-          aws_cli ecr get-login-password \
+          aws ecr get-login-password \
             --region "$AWS_REGION" |
             docker login \
               --username AWS \
