@@ -2,103 +2,160 @@
 
 ## Objetivo
 
-Desplegar esta aplicación Spring Boot en AWS con un flujo sencillo:
+Desplegar la aplicación Spring Boot de forma automatizada:
 
 ```text
 GitHub -> Jenkins -> Maven -> Docker -> Amazon ECR -> ECS Express Mode -> Fargate
 ```
 
-ECS Express Mode permite evitar la configuración manual de un cluster ECS, Task Definition, Service, Load Balancer y gran parte del networking para este laboratorio.
+No se utiliza `latest`. Cada build publica una imagen inmutable usando `BUILD_NUMBER`, por ejemplo:
+
+```text
+mi-application:25
+mi-application:26
+mi-application:27
+```
 
 ## 1. Prerrequisitos
 
 - Cuenta AWS.
 - Jenkins con un agente capaz de ejecutar Docker.
 - Credenciales AWS configuradas en Jenkins.
-- Un repositorio ECR.
-- Un servicio creado una sola vez mediante ECS Express Mode.
+- Dos roles IAM para ECS Express Mode.
 
-## 2. Credenciales Jenkins
+El pipeline crea automáticamente el repositorio ECR y el servicio ECS Express Mode cuando no existen.
 
-Crear estas credenciales como `Secret text`:
+## 2. Credenciales AWS en Jenkins
+
+Crear como `Secret text`:
 
 ```text
 aws-access-key-id
 aws-secret-access-key
 ```
 
-Para producción, se recomienda utilizar credenciales temporales, IAM Roles u OIDC cuando sea posible.
+Para producción se recomienda utilizar credenciales temporales, IAM Roles u OIDC cuando sea posible.
 
-## 3. Crear ECR
+## 3. Roles IAM de ECS Express Mode
 
-Crear el repositorio:
-
-```text
-mi-application
-```
-
-El pipeline también intenta crearlo automáticamente si no existe.
-
-## 4. Crear el servicio ECS Express Mode
-
-En AWS Console:
+Crear una sola vez los roles que utilizará ECS Express Mode:
 
 ```text
-Amazon ECS -> Express mode -> Create
+ecsTaskExecutionRole
+ecsInfrastructureRoleForExpressServices
 ```
 
-Utilizar como imagen:
+El execution role debe tener la política administrada:
 
 ```text
-<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/mi-application:latest
+AmazonECSTaskExecutionRolePolicy
 ```
 
-Configuración sugerida:
+El infrastructure role debe tener la política administrada correspondiente a Express Mode:
 
 ```text
-Service name: mi-application
-Container port: 8080
-CPU: 0.5 vCPU
-Memory: 1 GB
+AmazonECSInfrastructureRoleforExpressGatewayServices
 ```
 
-El Dockerfile de este repositorio expone el puerto 8080.
+El pipeline referencia estos roles en `jksfile-aws` mediante sus ARNs.
 
-Durante la creación, configurar los roles IAM solicitados por ECS Express Mode, incluyendo el rol que permita obtener la imagen privada desde ECR.
+## 4. Configurar Account ID y región
 
-## 5. Configurar el ARN
-
-Después de crear el servicio, copiar su ARN y modificar `jksfile-aws`:
+En `jksfile-aws` configurar:
 
 ```groovy
-ECS_EXPRESS_SERVICE_ARN = '<ECS_EXPRESS_SERVICE_ARN>'
+AWS_REGION = 'us-east-2'
+ECS_EXECUTION_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole'
+ECS_INFRASTRUCTURE_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsInfrastructureRoleForExpressServices'
 ```
 
-Ejemplo:
-
-```text
-arn:aws:ecs:us-east-1:123456789012:service/mi-application/mi-application
-```
-
-## 6. Configurar Account ID
-
-En `jksfile-aws` reemplazar:
-
-```groovy
-ECR_ACCOUNT_ID = '<AWS_ACCOUNT_ID>'
-```
-
-por el Account ID real.
-
-Se puede obtener con:
+El Account ID puede obtenerse con:
 
 ```bash
 aws sts get-caller-identity
 ```
 
-## 7. Pipeline Jenkins
+## 5. ECR se crea automáticamente
 
-`jksfile-aws` tiene tres etapas:
+No es necesario crear el repositorio desde AWS Console.
+
+Jenkins comprueba si existe:
+
+```bash
+aws ecr describe-repositories
+```
+
+y, si no existe, ejecuta:
+
+```bash
+aws ecr create-repository
+```
+
+Repositorio utilizado:
+
+```text
+mi-application
+```
+
+## 6. Imagen versionada
+
+Jenkins construye la imagen utilizando el número de build:
+
+```text
+<ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/mi-application:<BUILD_NUMBER>
+```
+
+Por ejemplo:
+
+```text
+Build 42 -> mi-application:42
+```
+
+Esto permite identificar exactamente qué build fue desplegado y evita depender de `latest`.
+
+## 7. Primer deployment
+
+Después del push, Jenkins consulta si ya existe el servicio Express Mode.
+
+Si no existe, crea automáticamente el servicio utilizando la imagen recién publicada:
+
+```text
+create-express-gateway-service
+```
+
+El servicio queda ejecutándose sobre Fargate y Express Mode administra los componentes necesarios de infraestructura.
+
+Por tanto, no es necesario seleccionar manualmente una imagen desde la consola de ECS.
+
+## 8. Deployments posteriores
+
+Si el servicio ya existe, Jenkins actualiza la imagen:
+
+```text
+update-express-gateway-service
+```
+
+Ejemplo:
+
+```text
+Build 42 -> ECR :42 -> ECS Express Mode
+Build 43 -> ECR :43 -> ECS Express Mode
+Build 44 -> ECR :44 -> ECS Express Mode
+```
+
+Cada actualización utiliza una versión específica de la imagen.
+
+## 9. Puerto y health check
+
+La aplicación utiliza el puerto `8080`.
+
+```dockerfile
+EXPOSE 8080
+```
+
+El pipeline utiliza `/users` como health check porque la aplicación expone ese endpoint.
+
+## 10. Etapas del pipeline
 
 ### Build con Maven
 
@@ -106,29 +163,35 @@ aws sts get-caller-identity
 mvn clean package -DskipTests
 ```
 
-### Docker Build & Push
+### Build & Push a ECR
 
-Construye y publica:
+Jenkins:
+
+1. Obtiene el Account ID.
+2. Crea ECR si no existe.
+3. Se autentica contra ECR.
+4. Construye la imagen.
+5. Etiqueta con `BUILD_NUMBER`.
+6. Publica la imagen.
+
+### Create / Update ECS Express Mode
+
+Jenkins:
+
+1. Busca el servicio.
+2. Si no existe, lo crea.
+3. Si existe, actualiza la imagen.
+4. Solicita el deployment.
+
+## 11. Deployment solamente desde main
+
+El push a ECR y el deployment AWS se ejecutan solamente cuando la rama es:
 
 ```text
-<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/mi-application:latest
+main
 ```
 
-### Deploy
-
-Jenkins solicita un nuevo deployment del servicio ECS:
-
-```bash
-aws ecs update-service --force-new-deployment
-```
-
-El servicio ECS Express Mode se encarga del despliegue sobre Fargate.
-
-## 8. Condición de despliegue
-
-El push a ECR y el deployment AWS se ejecutan solamente para `main`.
-
-## 9. IAM de Jenkins
+## 12. Permisos IAM de Jenkins
 
 Permisos principales para ECR:
 
@@ -143,46 +206,81 @@ ecr:DescribeRepositories
 ecr:CreateRepository
 ```
 
-Para ECS:
+Permisos principales para Express Mode:
 
 ```text
-ecs:DescribeServices
-ecs:UpdateService
+ecs:ListServices
+ecs:CreateExpressGatewayService
+ecs:UpdateExpressGatewayService
+ecs:DescribeExpressGatewayService
+ecs:MonitorExpressGatewayService
 ```
 
 Aplicar mínimo privilegio en ambientes reales.
 
-## 10. Flujo final
+## 13. ¿Qué debemos hacer manualmente?
+
+Una sola vez:
 
 ```text
-Developer
-   |
-   v
-GitHub
+1. Crear credenciales AWS en Jenkins.
+2. Crear los roles IAM de Express Mode.
+3. Configurar Account ID y región.
+```
+
+Después:
+
+```text
+git push
    |
    v
 Jenkins
    |
-   +--> Maven Build
-   +--> Docker Build
-   +--> Amazon ECR :latest
+   +--> Maven
+   +--> Docker
+   +--> ECR :BUILD_NUMBER
+   +--> Create / Update ECS Express Mode
    |
    v
-ECS Express Mode
-   |
-   +--> Fargate
-   +--> Load Balancer / Networking gestionados
+Fargate
    |
    v
 Spring Boot API
 ```
 
-## 11. Comparación multi-cloud
+## 14. Comparación multi-cloud
 
 ```text
-Azure:  Jenkins -> ACR -> Azure Container Instances
-GCP:    Jenkins -> Artifact Registry -> Cloud Run
-AWS:    Jenkins -> ECR -> ECS Express Mode -> Fargate
+Azure: Jenkins -> ACR -> Azure Container Instances
+GCP:   Jenkins -> Artifact Registry -> Cloud Run
+AWS:   Jenkins -> ECR -> ECS Express Mode -> Fargate
 ```
 
-Con esto, AWS queda con un modelo mucho más parecido a Cloud Run sin tener que construir manualmente toda la arquitectura ECS tradicional.
+El patrón común es construir una imagen Docker, almacenarla en el registry del cloud y desplegarla en un runtime administrado.
+
+## 15. Resultado
+
+El pipeline AWS queda preparado para realizar el bootstrap del entorno y después actualizar automáticamente cada nueva versión:
+
+```text
+Developer
+    |
+    v
+GitHub
+    |
+    v
+Jenkins
+    |
+    +--> Maven Build
+    +--> Docker Build
+    +--> ECR :BUILD_NUMBER
+    +--> Create / Update ECS Express Mode
+    |
+    v
+AWS Fargate
+    |
+    v
+Spring Boot API
+```
+
+Cada build queda asociado a una imagen específica en ECR; no dependemos de `latest`.
