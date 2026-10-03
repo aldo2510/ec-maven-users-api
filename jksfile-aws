@@ -114,13 +114,15 @@ pipeline {
           if ! aws ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY" \
             >/dev/null 2>&1; then
+
             echo "Repositorio ECR no existe. Creándolo..."
+
             aws ecr create-repository \
               --repository-name "$ECR_REPOSITORY"
           fi
 
           aws ecr get-login-password \
-            --region "$AWS_REGION" | \
+            --region "$AWS_REGION" |
             docker login \
               --username AWS \
               --password-stdin "$ECR_REGISTRY"
@@ -171,7 +173,10 @@ pipeline {
           echo "Servicio ECS Express Mode: $APP_NAME"
 
           SERVICE_ARN=$(
-            aws ecs list-services               --cluster default               --query "serviceArns[?contains(@, '/$APP_NAME')]"               --output text |
+            aws ecs list-services \
+              --cluster default \
+              --query "serviceArns[?contains(@, '/$APP_NAME')]" \
+              --output text |
             awk '{print $1}'
           )
 
