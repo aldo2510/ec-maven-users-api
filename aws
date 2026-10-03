@@ -165,7 +165,7 @@ pipeline {
       agent {
         docker {
           image 'public.ecr.aws/aws-cli/aws-cli:2.37.5'
-          args '-u 0:0'
+          args '--entrypoint="" -u 0:0'
         }
       }
 
