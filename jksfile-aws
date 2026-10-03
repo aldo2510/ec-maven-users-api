@@ -2,61 +2,90 @@ pipeline {
   agent { label 'controller' }
 
   environment {
-    APP_NAME         = 'mi-application'
-    AWS_REGION       = 'us-east-1'
+    APP_NAME = 'mi-application'
+    AWS_REGION = 'us-east-2'
 
-    ECR_ACCOUNT_ID   = '<AWS_ACCOUNT_ID>'
-    ECR_REPOSITORY   = 'mi-application'
-    ECR_REGISTRY     = "${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    IMAGE_NAME       = "${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+    ECR_REPOSITORY = 'mi-application'
 
-    // ARN del servicio creado una sola vez con ECS Express Mode.
-    ECS_EXPRESS_SERVICE_ARN = '<ECS_EXPRESS_SERVICE_ARN>'
+    ECS_EXECUTION_ROLE_ARN =
+      'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole'
 
-    AWS_ACCESS_KEY_ID     = credentials('aws-access-key-id')
+    ECS_INFRASTRUCTURE_ROLE_ARN =
+      'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsInfrastructureRoleForExpressServices'
+
+    AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
     AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
   }
 
-  options { timestamps() }
+  options {
+    timestamps()
+  }
 
   stages {
+
     stage('Build con Maven') {
-      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+      agent {
+        docker {
+          image 'maven:3.9.6-eclipse-temurin-17'
+        }
+      }
+
       steps {
         sh '''
           set -eux
           mvn -v
           mvn clean package -DskipTests
         '''
-        archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
-        stash name: 'app-jar', includes: 'target/*.jar'
+
+        archiveArtifacts(
+          artifacts: 'target/*.jar',
+          fingerprint: true,
+          onlyIfSuccessful: true
+        )
+
+        stash(
+          name: 'app-jar',
+          includes: 'target/*.jar'
+        )
       }
     }
 
     stage('Docker Build & Push a ECR (main)') {
       when {
         expression {
-          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
-          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+          def branch = (
+            env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
+          ).trim()
+
+          branch == 'main' ||
+          branch == 'origin/main' ||
+          branch == 'refs/heads/main' ||
+          branch.endsWith('/main')
         }
       }
+
       agent {
         docker {
           image 'docker:24-cli'
           args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
         }
       }
+
       steps {
         script {
           try {
             copyArtifacts(
               projectName: env.JOB_NAME,
-              selector: [$class: 'SpecificBuildSelector', buildNumber: "${env.BUILD_NUMBER}"],
+              selector: [
+                $class: 'SpecificBuildSelector',
+                buildNumber: "${env.BUILD_NUMBER}"
+              ],
               filter: 'target/*.jar',
               fingerprintArtifacts: true,
               flatten: true,
               target: 'target'
             )
+
             echo 'copyArtifacts OK'
           } catch (err) {
             echo "copyArtifacts no disponible (${err}); usando fallback unstash"
@@ -66,19 +95,32 @@ pipeline {
 
         sh '''
           set -eux
+
           apk add --no-cache aws-cli
           aws --version
           export AWS_DEFAULT_REGION="$AWS_REGION"
 
-          aws ecr describe-repositories             --repository-names "$ECR_REPOSITORY"             >/dev/null 2>&1 ||           aws ecr create-repository             --repository-name "$ECR_REPOSITORY"
+          ACCOUNT_ID=$(aws sts get-caller-identity             --query Account             --output text)
 
-          aws ecr get-login-password --region "$AWS_REGION" |
-            docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_NUMBER"
 
-          docker build -t "$IMAGE_NAME" .
-          docker push "$IMAGE_NAME"
+          echo "Account ID: $ACCOUNT_ID"
+          echo "ECR Registry: $ECR_REGISTRY"
+          echo "Imagen: $IMAGE"
 
-          echo "Imagen publicada: $IMAGE_NAME"
+          if ! aws ecr describe-repositories             --repository-names "$ECR_REPOSITORY"             >/dev/null 2>&1; then
+            echo "Repositorio ECR no existe. Creándolo..."
+            aws ecr create-repository               --repository-name "$ECR_REPOSITORY"
+          fi
+
+          aws ecr get-login-password             --region "$AWS_REGION" |
+            docker login               --username AWS               --password-stdin "$ECR_REGISTRY"
+
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+          echo "Imagen publicada correctamente: $IMAGE"
         '''
       }
     }
@@ -86,30 +128,62 @@ pipeline {
     stage('Deploy a ECS Express Mode (main)') {
       when {
         expression {
-          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
-          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+          def branch = (
+            env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
+          ).trim()
+
+          branch == 'main' ||
+          branch == 'origin/main' ||
+          branch == 'refs/heads/main' ||
+          branch.endsWith('/main')
         }
       }
+
       agent {
         docker {
           image 'amazon/aws-cli:2'
           args '-u 0:0'
         }
       }
+
       steps {
         sh '''
           set -eux
+
           export AWS_DEFAULT_REGION="$AWS_REGION"
 
-          echo "Iniciando nuevo deployment de ECS Express Mode..."
+          ACCOUNT_ID=$(aws sts get-caller-identity             --query Account             --output text)
 
-          CLUSTER_ARN=$(aws ecs describe-services             --service "$ECS_EXPRESS_SERVICE_ARN"             --query 'services[0].cluster'             --output text)
+          ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_NUMBER"
 
-          aws ecs update-service             --cluster "$CLUSTER_ARN"             --service "$ECS_EXPRESS_SERVICE_ARN"             --force-new-deployment
+          echo "Imagen a desplegar: $IMAGE"
+          echo "Servicio ECS Express Mode: $APP_NAME"
 
-          aws ecs describe-services             --service "$ECS_EXPRESS_SERVICE_ARN"             --query 'services[0].{status:status,desired:desiredCount,running:runningCount,pending:pendingCount}'             --output table
+          SERVICE_ARN=$(
+            aws ecs list-services               --cluster default               --query "serviceArns[?contains(@, '/$APP_NAME')]"               --output text |
+            awk '{print $1}'
+          )
 
-          echo "Deployment solicitado correctamente."
+          if [ -z "$SERVICE_ARN" ] || [ "$SERVICE_ARN" = "None" ]; then
+            echo "El servicio ECS Express Mode no existe."
+            echo "Creando servicio: $APP_NAME"
+
+            SERVICE_ARN=$(
+              aws ecs create-express-gateway-service                 --cluster default                 --service-name "$APP_NAME"                 --primary-container "image=$IMAGE,containerPort=8080"                 --execution-role-arn "$ECS_EXECUTION_ROLE_ARN"                 --infrastructure-role-arn "$ECS_INFRASTRUCTURE_ROLE_ARN"                 --health-check-path "/users"                 --cpu 0.5                 --memory 1024                 --query 'service.serviceArn'                 --output text
+            )
+
+            echo "Servicio creado: $SERVICE_ARN"
+
+            aws ecs monitor-express-gateway-service               --service-arn "$SERVICE_ARN"               --monitor-mode TEXT-ONLY
+          else
+            echo "Servicio existente: $SERVICE_ARN"
+            echo "Actualizando imagen..."
+
+            aws ecs update-express-gateway-service               --service-arn "$SERVICE_ARN"               --primary-container "image=$IMAGE,containerPort=8080"               --monitor-resources DEPLOYMENT               --monitor-mode TEXT-ONLY
+
+            echo "Servicio actualizado correctamente."
+          fi
         '''
       }
     }
@@ -119,6 +193,7 @@ pipeline {
     success {
       echo 'OK: Maven, ECR y ECS Express Mode.'
     }
+
     failure {
       echo 'ERROR en el pipeline.'
     }
