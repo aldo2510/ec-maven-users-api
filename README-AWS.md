@@ -23,16 +23,25 @@ mi-application:27
 - Credenciales AWS configuradas en Jenkins.
 - Dos roles IAM para ECS Express Mode.
 
-El pipeline crea automáticamente el repositorio ECR y el servicio ECS Express Mode cuando no existen.
+El pipeline crea automáticamente el repositorio ECR y el servicio ECS Express Mode cuando no existen. Los roles IAM se crean manualmente una sola vez.
 
 ## 2. Credenciales AWS en Jenkins
 
 Crear como `Secret text`:
 
 ```text
-aws-access-key-id
-aws-secret-access-key
+Credential ID: aws-access-key-id
+Credential ID: aws-secret-access-key
 ```
+
+Los valores deben corresponder a:
+
+```text
+aws-access-key-id      -> Access Key ID (AKIA... o ASIA...)
+aws-secret-access-key  -> Secret Access Key
+```
+
+No se deben invertir las dos credenciales. El pipeline valida el formato de la Access Key ID antes de llamar a AWS.
 
 Para producción se recomienda utilizar credenciales temporales, IAM Roles u OIDC cuando sea posible.
 
@@ -148,13 +157,15 @@ aws iam list-attached-role-policies \
 
 ## 4. Configurar Account ID y región
 
-En `jksfile-aws` configurar:
+En `jksfile-aws` y, si se utiliza, en `aws`, configurar la región y los ARN de los roles:
 
 ```groovy
 AWS_REGION = 'us-east-2'
 ECS_EXECUTION_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole'
 ECS_INFRASTRUCTURE_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsInfrastructureRoleForExpressServices'
 ```
+
+En el archivo `aws` del repositorio, los ARN deben corresponder a la cuenta AWS donde se desplegará la aplicación.
 
 El Account ID puede obtenerse con:
 
@@ -182,6 +193,24 @@ Repositorio utilizado:
 
 ```text
 mi-application
+```
+
+## 6.1 AWS CLI utilizada por Jenkins
+
+El stage de ECR utiliza la imagen oficial de AWS CLI v2:
+
+```text
+public.ecr.aws/aws-cli/aws-cli:2.37.5
+```
+
+La imagen se ejecuta mediante Docker porque el agente utilizado para el build trabaja con `docker:24-cli`. El pipeline no instala `aws-cli` mediante Alpine.
+
+El stage de deployment utiliza directamente la misma imagen de AWS CLI.
+
+El agente Jenkins debe poder ejecutar Docker y tener acceso al socket:
+
+```text
+/var/run/docker.sock
 ```
 
 ## 6. Imagen versionada
@@ -305,15 +334,29 @@ ecs:MonitorExpressGatewayService
 
 Aplicar mínimo privilegio en ambientes reales.
 
+Los permisos anteriores corresponden al usuario o rol cuyas credenciales utiliza Jenkins. Los permisos para crear y administrar la infraestructura de Express Mode corresponden al `ecsInfrastructureRoleForExpressServices`, que se configura por separado. AWS requiere un execution role y un infrastructure role para este tipo de servicio. citeturn0search0turn0search1
+
 ## 13. ¿Qué debemos hacer manualmente?
 
 Una sola vez:
 
 ```text
-1. Crear credenciales AWS en Jenkins.
+1. Crear las dos credenciales AWS en Jenkins.
 2. Crear los dos roles IAM siguiendo los scripts de este README.
 3. Configurar Account ID y región en jksfile-aws.
+4. Si se utiliza el archivo aws, revisar también los ARN de los roles en ese archivo.
+5. Verificar que el endpoint /users responda correctamente para el health check.
 ```
+
+No es necesario crear manualmente:
+
+```text
+- El repositorio ECR.
+- El servicio ECS Express Mode.
+- La infraestructura de red administrada por Express Mode.
+```
+
+Express Mode puede crear y administrar componentes como Application Load Balancer, target groups, security groups y políticas de auto scaling. citeturn0search0turn0search5
 
 Después:
 
