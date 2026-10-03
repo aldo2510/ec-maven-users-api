@@ -1,0 +1,155 @@
+pipeline {
+  agent any
+
+  environment {
+    APP_NAME = 'mi-application'
+    AWS_REGION = 'us-east-2'
+
+    ECR_REPOSITORY = 'mi-application'
+
+    AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
+    AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+  }
+
+  options {
+    timestamps()
+  }
+
+  stages {
+
+    stage('Build con Maven') {
+      agent {
+        docker {
+          image 'maven:3.9.6-eclipse-temurin-17'
+        }
+      }
+
+      steps {
+        sh '''
+          set -eux
+          mvn -v
+          mvn clean package -DskipTests
+        '''
+
+        archiveArtifacts(
+          artifacts: 'target/*.jar',
+          fingerprint: true,
+          onlyIfSuccessful: true
+        )
+
+        stash(
+          name: 'app-jar',
+          includes: 'target/*.jar'
+        )
+      }
+    }
+
+    stage('Docker Build & Push a ECR (main)') {
+      when {
+        expression {
+          def branch = (
+            env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
+          ).trim()
+
+          branch == 'main' ||
+          branch == 'origin/main' ||
+          branch == 'refs/heads/main' ||
+          branch.endsWith('/main')
+        }
+      }
+
+      agent {
+        docker {
+          image 'docker:24-cli'
+          args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
+        }
+      }
+
+      steps {
+        unstash 'app-jar'
+
+        sh '''
+          set -eux
+
+          export AWS_DEFAULT_REGION="$AWS_REGION"
+          AWS_CLI_IMAGE="public.ecr.aws/aws-cli/aws-cli:2.37.5"
+
+          aws_cli() {
+            docker run --rm \
+              -e AWS_ACCESS_KEY_ID \
+              -e AWS_SECRET_ACCESS_KEY \
+              -e AWS_SESSION_TOKEN \
+              -e AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
+              "$AWS_CLI_IMAGE" "$@"
+          }
+
+          docker --version
+          aws_cli --version
+
+          AWS_ACCESS_KEY_ID=$(printf '%s' "$AWS_ACCESS_KEY_ID" | tr -d '\r\n')
+          AWS_SECRET_ACCESS_KEY=$(printf '%s' "$AWS_SECRET_ACCESS_KEY" | tr -d '\r\n')
+
+          case "$AWS_ACCESS_KEY_ID" in
+            AKIA*|ASIA*)
+              ;;
+            *)
+              echo "ERROR: AWS_ACCESS_KEY_ID no tiene un formato válido."
+              echo "Verifica que aws-access-key-id contenga la Access Key ID y no la Secret Access Key."
+              exit 1
+              ;;
+          esac
+
+          case "$AWS_SECRET_ACCESS_KEY" in
+            AKIA*|ASIA*)
+              echo "ERROR: aws-secret-access-key parece contener una Access Key ID."
+              echo "Las credenciales de AWS están invertidas."
+              exit 1
+              ;;
+          esac
+
+          ACCOUNT_ID=$(aws_cli sts get-caller-identity \
+            --query Account \
+            --output text)
+
+          ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$BUILD_NUMBER"
+
+          echo "Account ID: $ACCOUNT_ID"
+          echo "ECR Registry: $ECR_REGISTRY"
+          echo "Imagen: $IMAGE"
+
+          if ! aws_cli ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            >/dev/null 2>&1; then
+
+            echo "Repositorio ECR no existe. Creándolo..."
+
+            aws_cli ecr create-repository \
+              --repository-name "$ECR_REPOSITORY"
+          fi
+
+          aws_cli ecr get-login-password \
+            --region "$AWS_REGION" |
+            docker login \
+              --username AWS \
+              --password-stdin "$ECR_REGISTRY"
+
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+          echo "Imagen publicada correctamente: $IMAGE"
+        '''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo 'OK: Maven, ECR y ECS Express Mode.'
+    }
+
+    failure {
+      echo 'ERROR en el pipeline.'
+    }
+  }
+}
