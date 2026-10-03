@@ -92,6 +92,27 @@ pipeline {
           docker --version
           aws_cli --version
 
+          AWS_ACCESS_KEY_ID=$(printf '%s' "$AWS_ACCESS_KEY_ID" | tr -d '\r\n')
+          AWS_SECRET_ACCESS_KEY=$(printf '%s' "$AWS_SECRET_ACCESS_KEY" | tr -d '\r\n')
+
+          case "$AWS_ACCESS_KEY_ID" in
+            AKIA*|ASIA*)
+              ;;
+            *)
+              echo "ERROR: AWS_ACCESS_KEY_ID no tiene un formato válido."
+              echo "Verifica que aws-access-key-id contenga la Access Key ID y no la Secret Access Key."
+              exit 1
+              ;;
+          esac
+
+          case "$AWS_SECRET_ACCESS_KEY" in
+            AKIA*|ASIA*)
+              echo "ERROR: aws-secret-access-key parece contener una Access Key ID."
+              echo "Las credenciales de AWS están invertidas."
+              exit 1
+              ;;
+          esac
+
           ACCOUNT_ID=$(aws_cli sts get-caller-identity \
             --query Account \
             --output text)
@@ -155,6 +176,27 @@ pipeline {
           export AWS_DEFAULT_REGION="$AWS_REGION"
 
           aws --version
+
+          AWS_ACCESS_KEY_ID=$(printf '%s' "$AWS_ACCESS_KEY_ID" | tr -d '\r\n')
+          AWS_SECRET_ACCESS_KEY=$(printf '%s' "$AWS_SECRET_ACCESS_KEY" | tr -d '\r\n')
+
+          case "$AWS_ACCESS_KEY_ID" in
+            AKIA*|ASIA*)
+              ;;
+            *)
+              echo "ERROR: AWS_ACCESS_KEY_ID no tiene un formato válido."
+              echo "Verifica que aws-access-key-id contenga la Access Key ID y no la Secret Access Key."
+              exit 1
+              ;;
+          esac
+
+          case "$AWS_SECRET_ACCESS_KEY" in
+            AKIA*|ASIA*)
+              echo "ERROR: aws-secret-access-key parece contener una Access Key ID."
+              echo "Las credenciales de AWS están invertidas."
+              exit 1
+              ;;
+          esac
 
           ACCOUNT_ID=$(aws sts get-caller-identity \
             --query Account \
