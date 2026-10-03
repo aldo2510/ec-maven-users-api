@@ -1,0 +1,140 @@
+pipeline {
+  agent { label 'controller' }
+
+  environment {
+    // --- Aplicación ---
+    APP_NAME             = 'mi-application'
+    AWS_REGION           = 'us-east-1'
+
+    // --- Amazon ECR ---
+    ECR_ACCOUNT_ID       = '<AWS_ACCOUNT_ID>'
+    ECR_REPOSITORY       = 'mi-application'
+    ECR_REGISTRY         = "${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    IMAGE_NAME            = "${ECR_REGISTRY}/${ECR_REPOSITORY}:${BUILD_NUMBER}"
+
+    // --- Amazon ECS / Fargate ---
+    ECS_CLUSTER           = 'mi-application-cluster'
+    ECS_SERVICE            = 'mi-application-service'
+
+    // Jenkins -> AWS
+    // En Jenkins crear:
+    //   aws-access-key-id     -> Secret text
+    //   aws-secret-access-key -> Secret text
+    AWS_ACCESS_KEY_ID     = credentials('aws-access-key-id')
+    AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+  }
+
+  options { timestamps() }
+
+  stages {
+
+    stage('Build con Maven') {
+      agent { docker { image 'maven:3.9.6-eclipse-temurin-17' } }
+      steps {
+        sh '''
+          set -eux
+          mvn -v
+          mvn clean package -DskipTests
+        '''
+        archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: true
+        stash name: 'app-jar', includes: 'target/*.jar'
+      }
+    }
+
+    stage('Docker Build & Push a ECR (main)') {
+      when {
+        expression {
+          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
+          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+        }
+      }
+      agent {
+        docker {
+          image 'docker:24-cli'
+          args '-v /var/run/docker.sock:/var/run/docker.sock -u 0:0'
+        }
+      }
+      steps {
+        script {
+          try {
+            copyArtifacts(
+              projectName: env.JOB_NAME,
+              selector: [$class: 'SpecificBuildSelector', buildNumber: "${env.BUILD_NUMBER}"],
+              filter: 'target/*.jar',
+              fingerprintArtifacts: true,
+              flatten: true,
+              target: 'target'
+            )
+            echo 'copyArtifacts OK'
+          } catch (err) {
+            echo "copyArtifacts no disponible (${err}); usando fallback unstash"
+            dir('target') { }
+            unstash 'app-jar'
+          }
+        }
+
+        sh '''
+          set -eux
+
+          apk add --no-cache aws-cli
+
+          aws --version
+          export AWS_DEFAULT_REGION="$AWS_REGION"
+
+          # Crear el repositorio ECR si no existe.
+          aws ecr describe-repositories             --repository-names "$ECR_REPOSITORY"             >/dev/null 2>&1 ||           aws ecr create-repository             --repository-name "$ECR_REPOSITORY"
+
+          # Autenticación Docker contra ECR.
+          aws ecr get-login-password --region "$AWS_REGION" |
+            docker login               --username AWS               --password-stdin "$ECR_REGISTRY"
+
+          echo "Building $IMAGE_NAME"
+          docker build -t "$IMAGE_NAME" .
+          docker push "$IMAGE_NAME"
+        '''
+      }
+    }
+
+    stage('Deploy a ECS/Fargate (main)') {
+      when {
+        expression {
+          def b = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').trim()
+          b == 'main' || b == 'origin/main' || b == 'refs/heads/main' || b.endsWith('/main')
+        }
+      }
+      agent {
+        docker {
+          image 'amazon/aws-cli:2'
+          args '-u 0:0'
+        }
+      }
+      steps {
+        sh '''
+          set -eux
+
+          export AWS_DEFAULT_REGION="$AWS_REGION"
+
+          echo "Validando cluster ECS..."
+          aws ecs describe-clusters             --clusters "$ECS_CLUSTER"             --query 'clusters[0].status'             --output text
+
+          echo "Actualizando servicio ECS..."
+          aws ecs update-service             --cluster "$ECS_CLUSTER"             --service "$ECS_SERVICE"             --force-new-deployment
+
+          echo "Esperando a que ECS quede estable..."
+          aws ecs wait services-stable             --cluster "$ECS_CLUSTER"             --services "$ECS_SERVICE"
+
+          echo "Deploy completado en ECS/Fargate."
+        '''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo 'OK: build Maven, push a ECR y deploy a ECS/Fargate.'
+    }
+    failure {
+      echo 'ERROR en el pipeline.'
+    }
+  }
+}
