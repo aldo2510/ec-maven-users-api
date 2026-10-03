@@ -237,6 +237,7 @@ pipeline {
 
             aws ecs monitor-express-gateway-service \
               --service-arn "$SERVICE_ARN" \
+              --resource-view DEPLOYMENT \
               --mode TEXT-ONLY
           else
             echo "Servicio existente: $SERVICE_ARN"
