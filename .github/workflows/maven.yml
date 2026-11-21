@@ -16,16 +16,18 @@ jobs:
     container:
       image: maven:4.0.0-rc-7-eclipse-temurin-17
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        
-      - name: Cache local Maven repository
-        uses: actions/cache@v6
-        with:
-          path: /root/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
+
+      - parallel:
+        - name: Checkout
+          uses: actions/checkout@v7
+          
+        - name: Cache local Maven repository
+          uses: actions/cache@v6
+          with:
+            path: /root/.m2/repository
+            key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+            restore-keys: |
+              ${{ runner.os }}-maven-
             
       - name: Build with Maven
         run: mvn clean package -DskipTests
