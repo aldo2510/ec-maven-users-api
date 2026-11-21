@@ -1,0 +1,14 @@
+name: Windows self-hosted runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - name: Verify runner
+        shell: powershell
+        run: |
+          Write-Host "GitHub Actions self-hosted runner"
+          Write-Host "Workspace: $env:RUNNER_WORKSPACE"
