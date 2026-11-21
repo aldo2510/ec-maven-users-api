@@ -1,4 +1,4 @@
-name: workflow dockerhub
+name: Maven
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     name: Construir
     runs-on: ubuntu-latest
     container:
-      image: eclipse-temurin:17.0.21.1_2-jdk
+      image: maven:4.0.0-rc-7-eclipse-temurin-17
     steps:
       - name: Checkout
         uses: actions/checkout@v7
